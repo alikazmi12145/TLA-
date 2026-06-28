@@ -1,14 +1,20 @@
 const mongoose = require('mongoose');
 const { TARGET_TYPES } = require('../config/constants');
 
+// Accept legacy 'DAILY' so old documents still validate; controllers migrate it to 'ONCE'.
+const TARGET_TYPE_ENUM = Array.from(new Set([...TARGET_TYPES, 'DAILY']));
+
 const targetSchema = new mongoose.Schema(
   {
     employee: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-    type: { type: String, enum: TARGET_TYPES, required: true },
+    type: { type: String, enum: TARGET_TYPE_ENUM, required: true },
     periodStart: { type: Date, required: true },
     periodEnd: { type: Date, required: true },
     targetValue: { type: Number, required: true, min: 0 },
     achievedValue: { type: Number, default: 0, min: 0 },
+    status: { type: String, enum: ['PENDING', 'COMPLETED', 'EXPIRED'], default: 'PENDING', index: true },
+    completedAt: { type: Date },
+    completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     note: String,
     setBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },

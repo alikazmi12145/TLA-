@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Card, CardContent, Stack, TextField, Button, MenuItem, IconButton, Tooltip, Box, Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress } from '@mui/material';
+import { Card, CardContent, Stack, TextField, Button, MenuItem, IconButton, Tooltip, Box, Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import NotesIcon from '@mui/icons-material/Notes';
 import dayjs from 'dayjs';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -20,6 +21,7 @@ export default function TargetsPage() {
   const [editing, setEditing] = useState(null);
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(null);
+  const [noteView, setNoteView] = useState(null);
   const [params] = useSearchParams();
   const focusId = params.get('focus');
   const focusRef = useRef(null);
@@ -48,7 +50,9 @@ export default function TargetsPage() {
     });
     setOpen(true);
   };
-  const startNew = () => { setEditing(null); reset({ employee: '', type: 'DAILY', periodStart: dayjs().format('YYYY-MM-DD'), periodEnd: dayjs().format('YYYY-MM-DD'), targetValue: 0, achievedValue: 0 }); setOpen(true); };
+  const startNew = () => { setEditing(null); reset({ employee: '', type: 'ONCE', periodStart: dayjs().format('YYYY-MM-DD'), periodEnd: dayjs().format('YYYY-MM-DD'), targetValue: 0, achievedValue: 0 }); setOpen(true); };
+
+  const TYPE_LABEL = { ONCE: 'Once', WEEKLY: 'Weekly', MONTHLY: 'Monthly', DAILY: 'Once' };
 
   const onSubmit = async (values) => {
     try {
@@ -64,7 +68,7 @@ export default function TargetsPage() {
 
   return (
     <>
-      <PageHeader title="Targets" subtitle="Track daily/weekly/monthly performance" actions={<Button startIcon={<AddIcon />} variant="contained" onClick={startNew}>Set target</Button>} />
+      <PageHeader title="Tasks" subtitle="Track one-off / weekly / monthly performance tasks" actions={<Button startIcon={<AddIcon />} variant="contained" onClick={startNew}>Set task</Button>} />
       <Card sx={{ mb: 2 }}><CardContent>
         <Box sx={{ fontWeight: 700, mb: 1 }}>Top Performers</Box>
         <Stack spacing={1}>
@@ -85,12 +89,13 @@ export default function TargetsPage() {
         {isLoading ? <TableSkeleton /> : (data?.data?.length ? (
           <Box sx={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr style={{ textAlign: 'left' }}>{['Employee', 'Type', 'Period', 'Target', 'Achieved', 'Completion', 'Actions'].map((h) => (
+              <thead><tr style={{ textAlign: 'left' }}>{['Employee', 'Type', 'Period', 'Task', 'Achieved', 'Note', 'Actions'].map((h) => (
                 <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>
               ))}</tr></thead>
               <tbody>
                 {data.data.map((t) => {
                   const isFocus = focusId === t._id;
+                  const hasNote = !!(t.note && String(t.note).trim());
                   return (
                     <tr
                       key={t._id}
@@ -102,11 +107,25 @@ export default function TargetsPage() {
                       }}
                     >
                       <td style={{ padding: '10px 8px' }}>{t.employee?.fullName}</td>
-                      <td style={{ padding: '10px 8px' }}>{t.type}</td>
+                      <td style={{ padding: '10px 8px' }}>{TYPE_LABEL[t.type] || t.type}</td>
                       <td style={{ padding: '10px 8px' }}>{dayjs(t.periodStart).format('MMM D')} → {dayjs(t.periodEnd).format('MMM D')}</td>
                       <td style={{ padding: '10px 8px' }}>{t.targetValue}</td>
                       <td style={{ padding: '10px 8px' }}>{t.achievedValue}</td>
-                      <td style={{ padding: '10px 8px' }}>{t.completion?.toFixed?.(1) || 0}%</td>
+                      <td style={{ padding: '10px 8px' }}>
+                        {hasNote ? (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="primary"
+                            startIcon={<NotesIcon fontSize="small" />}
+                            onClick={() => setNoteView(t)}
+                          >
+                            Check Note
+                          </Button>
+                        ) : (
+                          <Box component="span" sx={{ opacity: 0.5 }}>—</Box>
+                        )}
+                      </td>
                       <td style={{ padding: '10px 8px' }}>
                         <Tooltip title="Edit"><IconButton size="small" onClick={() => startEdit(t)}><EditIcon fontSize="small" /></IconButton></Tooltip>
                         <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setConfirm(t)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
@@ -121,22 +140,22 @@ export default function TargetsPage() {
       </CardContent></Card>
 
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{editing ? 'Edit Target' : 'Set Target'}</DialogTitle>
+        <DialogTitle>{editing ? 'Edit Task' : 'Set Task'}</DialogTitle>
         <form onSubmit={handleSubmit(onSubmit)}>
           <DialogContent>
             <Stack spacing={2} sx={{ mt: 1 }}>
               <TextField select label="Employee" required fullWidth defaultValue="" {...register('employee', { required: true })}>
                 {(emps?.data || []).map((e) => <MenuItem key={e._id} value={e._id}>{e.fullName} ({e.employeeId})</MenuItem>)}
               </TextField>
-              <TextField select label="Type" required fullWidth defaultValue="DAILY" {...register('type', { required: true })}>
-                {TARGET_TYPES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+              <TextField select label="Type" required fullWidth defaultValue="ONCE" {...register('type', { required: true })}>
+                {TARGET_TYPES.map((t) => <MenuItem key={t} value={t}>{TYPE_LABEL[t] || t}</MenuItem>)}
               </TextField>
               <Stack direction="row" spacing={2}>
                 <TextField type="date" label="From" InputLabelProps={{ shrink: true }} required fullWidth {...register('periodStart', { required: true })} />
                 <TextField type="date" label="To" InputLabelProps={{ shrink: true }} required fullWidth {...register('periodEnd', { required: true })} />
               </Stack>
               <Stack direction="row" spacing={2}>
-                <TextField type="number" label="Target value" required fullWidth {...register('targetValue', { valueAsNumber: true })} />
+                <TextField type="number" label="Task value" required fullWidth {...register('targetValue', { valueAsNumber: true })} />
                 <TextField type="number" label="Achieved" fullWidth {...register('achievedValue', { valueAsNumber: true })} />
               </Stack>
               <TextField label="Note" fullWidth {...register('note')} />
@@ -149,7 +168,34 @@ export default function TargetsPage() {
         </form>
       </Dialog>
 
-      <ConfirmDialog open={!!confirm} title="Delete target" message="Are you sure?" onClose={() => setConfirm(null)} onConfirm={onDelete} confirmText="Delete" danger />
+      <ConfirmDialog open={!!confirm} title="Delete task" message="Are you sure?" onClose={() => setConfirm(null)} onConfirm={onDelete} confirmText="Delete" danger />
+
+      <Dialog open={!!noteView} onClose={() => setNoteView(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Task Note</DialogTitle>
+        <DialogContent>
+          {noteView && (
+            <Stack spacing={1.5} sx={{ mt: 1 }}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">EMPLOYEE</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{noteView.employee?.fullName || '—'}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">PERIOD</Typography>
+                <Typography variant="body2">
+                  {dayjs(noteView.periodStart).format('MMM D, YYYY')} → {dayjs(noteView.periodEnd).format('MMM D, YYYY')}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">NOTE</Typography>
+                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', mt: 0.5 }}>{noteView.note}</Typography>
+              </Box>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setNoteView(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

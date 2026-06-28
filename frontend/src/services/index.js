@@ -79,6 +79,7 @@ export const targetService = {
   ranking: () => api.get('/targets/ranking').then((r) => r.data),
   create: (data) => api.post('/targets', data).then((r) => r.data),
   update: (id, data) => api.put(`/targets/${id}`, data).then((r) => r.data),
+  complete: (id) => api.patch(`/targets/${id}/complete`).then((r) => r.data),
   remove: (id) => api.delete(`/targets/${id}`).then((r) => r.data),
 };
 

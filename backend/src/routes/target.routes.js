@@ -10,6 +10,8 @@ const adminOrTL = authorize(ROLES.SUPER_ADMIN, ROLES.TEAM_LEADER);
 
 router.get('/me', ctrl.mine);
 router.get('/ranking', ctrl.ranking);
+// allow employees to mark their own target complete (before generic /:id routes)
+router.patch('/:id/complete', ctrl.complete);
 router.get('/', adminOrTL, ctrl.list);
 router.post('/', adminOrTL, ctrl.create);
 router.put('/:id', adminOrTL, ctrl.update);

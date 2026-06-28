@@ -106,7 +106,7 @@ const computePayroll = async (employee, month, year, overrides = {}) => {
   if (dailyTarget > 0 && perTicketIncentive > 0) {
     const dailyDocs = await Target.find({
       employee: employee._id,
-      type: 'DAILY',
+      type: 'ONCE',
       periodStart: { $gte: start, $lte: end },
     });
     for (const d of dailyDocs) {

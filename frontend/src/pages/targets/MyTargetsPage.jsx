@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { Card, CardContent, Box, Stack, Chip, LinearProgress, Typography, Grid } from '@mui/material';
-import { useQuery } from '@tanstack/react-query';
+import { Card, CardContent, Box, Stack, Chip, LinearProgress, Typography, Grid, Button } from '@mui/material';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
+import { toast } from 'react-toastify';
 import dayjs from 'dayjs';
 
 import PageHeader from '../../components/common/PageHeader';
@@ -18,6 +19,7 @@ export default function MyTargetsPage() {
   const focusId = params.get('focus');
   const focusRef = useRef(null);
 
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ['my-targets', me?._id],
     queryFn: targetService.mine,
@@ -54,7 +56,7 @@ export default function MyTargetsPage() {
   return (
     <>
       <PageHeader
-        title="My Targets"
+        title="My Tasks"
         subtitle={me ? `Performance summary for ${me.fullName}` : ''}
       />
 
@@ -72,7 +74,7 @@ export default function MyTargetsPage() {
         </Grid>
         <Grid item xs={6} md={3}>
           <Card><CardContent>
-            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.6 }}>TOTAL TARGET</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.6 }}>TOTAL TASK</Typography>
             <Typography variant="h5" sx={{ fontWeight: 800 }}>{summary.total}</Typography>
           </CardContent></Card>
         </Grid>
@@ -118,7 +120,7 @@ export default function MyTargetsPage() {
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }} justifyContent="space-between" sx={{ mb: 1 }}>
                     <Box>
                       <Stack direction="row" spacing={1} alignItems="center">
-                        <Chip size="small" label={t.type} color="primary" variant="outlined" />
+                        <Chip size="small" label={t.type === 'DAILY' ? 'ONCE' : t.type} color="primary" variant="outlined" />
                         <Typography variant="body2" color="text.secondary">
                           {fmtDate(t.periodStart)} → {fmtDate(t.periodEnd)}
                         </Typography>
@@ -129,18 +131,44 @@ export default function MyTargetsPage() {
                     </Box>
                     <Stack direction="row" spacing={2} alignItems="center">
                       <Box sx={{ textAlign: 'right' }}>
-                        <Typography variant="caption" color="text.secondary">Target</Typography>
+                        <Typography variant="caption" color="text.secondary">Task</Typography>
                         <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{t.targetValue}</Typography>
                       </Box>
                       <Box sx={{ textAlign: 'right' }}>
                         <Typography variant="caption" color="text.secondary">Achieved</Typography>
                         <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{t.achievedValue}</Typography>
                       </Box>
-                      <Chip
-                        label={`${pct.toFixed(1)}%`}
-                        color={periodColor(t)}
-                        sx={{ fontWeight: 700, minWidth: 76 }}
-                      />
+                      {t.status === 'COMPLETED' ? (
+                        <Chip
+                          label="Completed"
+                          color="success"
+                          sx={{ fontWeight: 700, minWidth: 76 }}
+                        />
+                      ) : t.status === 'EXPIRED' ? (
+                        <Chip
+                          label="Expired"
+                          color="default"
+                          sx={{ fontWeight: 700, minWidth: 76 }}
+                        />
+                      ) : (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="primary"
+                          onClick={async () => {
+                            try {
+                              await targetService.complete(t._id);
+                              await queryClient.invalidateQueries({ queryKey: ['my-targets', me?._id] });
+                              toast.success('Task marked complete!');
+                            } catch (err) {
+                              toast.error(err?.response?.data?.message || 'Failed to mark task complete');
+                            }
+                          }}
+                          sx={{ fontWeight: 700, minWidth: 76 }}
+                        >
+                          Mark Done
+                        </Button>
+                      )}
                     </Stack>
                   </Stack>
                   <LinearProgress
@@ -153,7 +181,7 @@ export default function MyTargetsPage() {
               );
             })}
           </Stack>
-        ) : <Empty title="No targets yet" subtitle="Your manager will assign performance targets here." />)}
+        ) : <Empty title="No tasks yet" subtitle="Your manager will assign performance tasks here." />)}
       </CardContent></Card>
     </>
   );

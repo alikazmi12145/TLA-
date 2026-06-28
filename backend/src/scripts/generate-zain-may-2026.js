@@ -144,15 +144,15 @@ async function seedTickets(employeeId) {
   const end = dayjs(start).endOf('month').toDate();
   await Target.deleteMany({
     employee: employeeId,
-    type: 'DAILY',
+    type: 'ONCE',
     periodStart: { $gte: start, $lte: end },
   });
 
-  // First TICKET_DAYS weekdays of the month get a DAILY target.
+  // First TICKET_DAYS weekdays of the month get a ONCE target.
   const dates = pickMonthDates(MONTH, YEAR, TICKET_DAYS);
   const docs = dates.map((d) => ({
     employee: employeeId,
-    type: 'DAILY',
+    type: 'ONCE',
     periodStart: dayjs(d).startOf('day').toDate(),
     periodEnd: dayjs(d).endOf('day').toDate(),
     targetValue: 120,
@@ -193,7 +193,7 @@ async function computePayroll(employee, setting) {
   if (dailyTarget > 0 && perTicketIncentive > 0) {
     const dailyDocs = await Target.find({
       employee: employee._id,
-      type: 'DAILY',
+      type: 'ONCE',
       periodStart: { $gte: start, $lte: end },
     });
     for (const d of dailyDocs) {

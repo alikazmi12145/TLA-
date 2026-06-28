@@ -53,9 +53,9 @@ const sections = [
   {
     title: 'Performance',
     items: [
-      // Targets: SUPER_ADMIN + TL
-      { to: '/targets', label: 'Targets', icon: <EmojiEventsIcon />, allow: ['SUPER_ADMIN', 'TEAM_LEADER'] },
-      { to: '/my/targets', label: 'My Targets', icon: <EmojiEventsIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
+      // Tasks: SUPER_ADMIN + TL
+      { to: '/targets', label: 'Tasks', icon: <EmojiEventsIcon />, allow: ['SUPER_ADMIN', 'TEAM_LEADER'] },
+      { to: '/my/targets', label: 'My Tasks', icon: <EmojiEventsIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
       // Commissions admin: Super Admin only
       { to: '/commissions', label: 'Commissions', icon: <RequestQuoteIcon />, allow: ['SUPER_ADMIN'] },
     ],
