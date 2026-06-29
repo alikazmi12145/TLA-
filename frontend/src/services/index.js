@@ -80,6 +80,8 @@ export const targetService = {
   create: (data) => api.post('/targets', data).then((r) => r.data),
   update: (id, data) => api.put(`/targets/${id}`, data).then((r) => r.data),
   complete: (id) => api.patch(`/targets/${id}/complete`).then((r) => r.data),
+  addEmployeeNote: (id, employeeNote) =>
+    api.patch(`/targets/${id}/employee-note`, { employeeNote }).then((r) => r.data),
   remove: (id) => api.delete(`/targets/${id}`).then((r) => r.data),
 };
 

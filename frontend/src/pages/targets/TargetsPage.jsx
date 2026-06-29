@@ -22,6 +22,7 @@ export default function TargetsPage() {
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(null);
   const [noteView, setNoteView] = useState(null);
+  const [empNoteView, setEmpNoteView] = useState(null);
   const [params] = useSearchParams();
   const focusId = params.get('focus');
   const focusRef = useRef(null);
@@ -89,13 +90,14 @@ export default function TargetsPage() {
         {isLoading ? <TableSkeleton /> : (data?.data?.length ? (
           <Box sx={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr style={{ textAlign: 'left' }}>{['Employee', 'Type', 'Period', 'Task', 'Achieved', 'Note', 'Actions'].map((h) => (
+              <thead><tr style={{ textAlign: 'left' }}>{['Employee', 'Type', 'Period', 'Task', 'Achieved', 'Notes', 'Actions'].map((h) => (
                 <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>
               ))}</tr></thead>
               <tbody>
                 {data.data.map((t) => {
                   const isFocus = focusId === t._id;
                   const hasNote = !!(t.note && String(t.note).trim());
+                  const hasEmpNote = !!(t.employeeNote && String(t.employeeNote).trim());
                   return (
                     <tr
                       key={t._id}
@@ -112,16 +114,31 @@ export default function TargetsPage() {
                       <td style={{ padding: '10px 8px' }}>{t.targetValue}</td>
                       <td style={{ padding: '10px 8px' }}>{t.achievedValue}</td>
                       <td style={{ padding: '10px 8px' }}>
-                        {hasNote ? (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="primary"
-                            startIcon={<NotesIcon fontSize="small" />}
-                            onClick={() => setNoteView(t)}
-                          >
-                            Check Note
-                          </Button>
+                        {(hasNote || hasEmpNote) ? (
+                          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                            {hasNote && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="primary"
+                                startIcon={<NotesIcon fontSize="small" />}
+                                onClick={() => setNoteView(t)}
+                              >
+                                Check Note
+                              </Button>
+                            )}
+                            {hasEmpNote && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="warning"
+                                startIcon={<NotesIcon fontSize="small" />}
+                                onClick={() => setEmpNoteView(t)}
+                              >
+                                Employee Note
+                              </Button>
+                            )}
+                          </Stack>
                         ) : (
                           <Box component="span" sx={{ opacity: 0.5 }}>—</Box>
                         )}
@@ -171,7 +188,7 @@ export default function TargetsPage() {
       <ConfirmDialog open={!!confirm} title="Delete task" message="Are you sure?" onClose={() => setConfirm(null)} onConfirm={onDelete} confirmText="Delete" danger />
 
       <Dialog open={!!noteView} onClose={() => setNoteView(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Task Note</DialogTitle>
+        <DialogTitle>Admin Note</DialogTitle>
         <DialogContent>
           {noteView && (
             <Stack spacing={1.5} sx={{ mt: 1 }}>
@@ -194,6 +211,39 @@ export default function TargetsPage() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setNoteView(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!empNoteView} onClose={() => setEmpNoteView(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Employee Note</DialogTitle>
+        <DialogContent>
+          {empNoteView && (
+            <Stack spacing={1.5} sx={{ mt: 1 }}>
+              <Box>
+                <Typography variant="caption" color="text.secondary">EMPLOYEE</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>{empNoteView.employee?.fullName || '—'}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary">PERIOD</Typography>
+                <Typography variant="body2">
+                  {dayjs(empNoteView.periodStart).format('MMM D, YYYY')} → {dayjs(empNoteView.periodEnd).format('MMM D, YYYY')}
+                </Typography>
+              </Box>
+              {empNoteView.employeeNoteAt && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary">SUBMITTED</Typography>
+                  <Typography variant="body2">{dayjs(empNoteView.employeeNoteAt).format('MMM D, YYYY h:mm A')}</Typography>
+                </Box>
+              )}
+              <Box>
+                <Typography variant="caption" color="text.secondary">EMPLOYEE'S NOTE</Typography>
+                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', mt: 0.5 }}>{empNoteView.employeeNote}</Typography>
+              </Box>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setEmpNoteView(null)}>Close</Button>
         </DialogActions>
       </Dialog>
     </>

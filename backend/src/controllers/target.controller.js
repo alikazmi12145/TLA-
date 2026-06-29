@@ -189,3 +189,36 @@ exports.complete = asyncHandler(async (req, res) => {
   } catch {}
   return success(res, item, 'Task completed');
 });
+
+exports.addEmployeeNote = asyncHandler(async (req, res) => {
+  const existing = await Target.findById(req.params.id);
+  if (!existing) throw new ApiError(404, 'Task not found');
+  const isOwner = existing.employee && existing.employee.equals
+    ? existing.employee.equals(req.user._id)
+    : String(existing.employee) === String(req.user._id);
+  if (!isOwner && ![ROLES.SUPER_ADMIN, ROLES.TEAM_LEADER].includes(req.user.role)) {
+    throw new ApiError(403, 'Forbidden');
+  }
+  const note = String(req.body?.employeeNote || '').trim();
+  if (!note) throw new ApiError(400, 'Note is required');
+
+  const item = await Target.findByIdAndUpdate(
+    req.params.id,
+    { $set: { employeeNote: note, employeeNoteAt: new Date() } },
+    { new: true }
+  );
+
+  try {
+    if (item.setBy) {
+      await Notification.create({
+        user: item.setBy,
+        type: 'TARGET_UPDATED',
+        title: 'Employee added a task note',
+        message: `${req.user.fullName || 'Employee'} left a note on a task (${fmtPeriod(item.periodStart, item.periodEnd)}).`,
+        meta: { targetId: item._id },
+      });
+    }
+  } catch {}
+
+  return success(res, item, 'Note saved');
+});

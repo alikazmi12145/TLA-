@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
-import { Card, CardContent, Box, Stack, Chip, LinearProgress, Typography, Grid, Button } from '@mui/material';
+import { useEffect, useRef, useState } from 'react';
+import { Card, CardContent, Box, Stack, Chip, LinearProgress, Typography, Grid, Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField } from '@mui/material';
+import NotesIcon from '@mui/icons-material/Notes';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -20,6 +21,9 @@ export default function MyTargetsPage() {
   const focusRef = useRef(null);
 
   const queryClient = useQueryClient();
+  const [noteFor, setNoteFor] = useState(null);
+  const [noteText, setNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ['my-targets', me?._id],
     queryFn: targetService.mine,
@@ -126,7 +130,14 @@ export default function MyTargetsPage() {
                         </Typography>
                       </Stack>
                       {t.note && (
-                        <Typography variant="body2" sx={{ mt: 0.5, opacity: 0.85 }}>{t.note}</Typography>
+                        <Typography variant="body2" sx={{ mt: 0.5, opacity: 0.85 }}>
+                          <Box component="span" sx={{ fontWeight: 600, mr: 0.5 }}>Admin:</Box>{t.note}
+                        </Typography>
+                      )}
+                      {t.employeeNote && (
+                        <Typography variant="body2" sx={{ mt: 0.5, opacity: 0.85, color: 'warning.main' }}>
+                          <Box component="span" sx={{ fontWeight: 600, mr: 0.5 }}>Your note:</Box>{t.employeeNote}
+                        </Typography>
                       )}
                     </Box>
                     <Stack direction="row" spacing={2} alignItems="center">
@@ -145,29 +156,51 @@ export default function MyTargetsPage() {
                           sx={{ fontWeight: 700, minWidth: 76 }}
                         />
                       ) : t.status === 'EXPIRED' ? (
-                        <Chip
-                          label="Expired"
-                          color="default"
-                          sx={{ fontWeight: 700, minWidth: 76 }}
-                        />
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Chip
+                            label="Expired"
+                            color="default"
+                            sx={{ fontWeight: 700, minWidth: 76 }}
+                          />
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="warning"
+                            startIcon={<NotesIcon fontSize="small" />}
+                            onClick={() => { setNoteFor(t); setNoteText(t.employeeNote || ''); }}
+                          >
+                            {t.employeeNote ? 'Edit note' : 'Add note'}
+                          </Button>
+                        </Stack>
                       ) : (
-                        <Button
-                          size="small"
-                          variant="contained"
-                          color="primary"
-                          onClick={async () => {
-                            try {
-                              await targetService.complete(t._id);
-                              await queryClient.invalidateQueries({ queryKey: ['my-targets', me?._id] });
-                              toast.success('Task marked complete!');
-                            } catch (err) {
-                              toast.error(err?.response?.data?.message || 'Failed to mark task complete');
-                            }
-                          }}
-                          sx={{ fontWeight: 700, minWidth: 76 }}
-                        >
-                          Mark Done
-                        </Button>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="primary"
+                            onClick={async () => {
+                              try {
+                                await targetService.complete(t._id);
+                                await queryClient.invalidateQueries({ queryKey: ['my-targets', me?._id] });
+                                toast.success('Task marked complete!');
+                              } catch (err) {
+                                toast.error(err?.response?.data?.message || 'Failed to mark task complete');
+                              }
+                            }}
+                            sx={{ fontWeight: 700, minWidth: 76 }}
+                          >
+                            Mark Done
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="warning"
+                            startIcon={<NotesIcon fontSize="small" />}
+                            onClick={() => { setNoteFor(t); setNoteText(t.employeeNote || ''); }}
+                          >
+                            {t.employeeNote ? 'Edit note' : 'Add note'}
+                          </Button>
+                        </Stack>
                       )}
                     </Stack>
                   </Stack>
@@ -183,6 +216,48 @@ export default function MyTargetsPage() {
           </Stack>
         ) : <Empty title="No tasks yet" subtitle="Your manager will assign performance tasks here." />)}
       </CardContent></Card>
+
+      <Dialog open={!!noteFor} onClose={() => !savingNote && setNoteFor(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Note for admin</DialogTitle>
+        <DialogContent>
+          <Typography variant="caption" color="text.secondary">
+            Explain why this task was not completed on time. Your admin will be notified.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={4}
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            placeholder="E.g. I was on approved leave / system was down / waiting on data from another team…"
+            sx={{ mt: 1.5 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setNoteFor(null)} disabled={savingNote}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={savingNote || !noteText.trim()}
+            onClick={async () => {
+              if (!noteFor) return;
+              setSavingNote(true);
+              try {
+                await targetService.addEmployeeNote(noteFor._id, noteText.trim());
+                await queryClient.invalidateQueries({ queryKey: ['my-targets', me?._id] });
+                toast.success('Note sent to admin');
+                setNoteFor(null);
+              } catch (err) {
+                toast.error(err?.response?.data?.message || 'Failed to save note');
+              } finally {
+                setSavingNote(false);
+              }
+            }}
+          >
+            {savingNote ? 'Saving…' : 'Send'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

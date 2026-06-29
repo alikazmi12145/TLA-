@@ -16,6 +16,8 @@ const targetSchema = new mongoose.Schema(
     completedAt: { type: Date },
     completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     note: String,
+    employeeNote: String,
+    employeeNoteAt: { type: Date },
     setBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true }
