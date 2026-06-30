@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { getDefaultPermissions } = require('../config/permissions');
 
 const settingSchema = new mongoose.Schema(
   {
@@ -30,6 +31,10 @@ const settingSchema = new mongoose.Schema(
     theme: {
       mode: { type: String, enum: ['light', 'dark'], default: 'light' },
       primary: { type: String, default: '#5b6ef5' },
+    },
+    permissions: {
+      type: mongoose.Schema.Types.Mixed,
+      default: getDefaultPermissions,
     },
   },
   { timestamps: true }

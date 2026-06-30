@@ -279,13 +279,6 @@ const generatePayslipPDF = async (payroll, employee, setting) => {
       ],
       brand
     );
-    drawAttendanceLines(doc, meta, currency);
-
-    // Ticket performance (only if configured)
-    if (meta.dailyTicketTarget > 0) {
-      drawSection(doc, 'Ticket Performance', brand);
-      drawTicketBlock(doc, meta, currency);
-    }
 
     // Salary breakdown — two columns
     drawSection(doc, 'Salary Breakdown', brand);

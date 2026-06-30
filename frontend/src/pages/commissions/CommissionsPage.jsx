@@ -11,10 +11,13 @@ import { toast } from 'react-toastify';
 import PageHeader from '../../components/common/PageHeader';
 import { TableSkeleton, Empty } from '../../components/common/States';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import useSettingsPermissions from '../../hooks/useSettingsPermissions';
 import { commissionService, employeeService } from '../../services';
 import { formatCurrency } from '../../lib/format';
 
 export default function CommissionsPage() {
+  const { canAccess } = useSettingsPermissions();
+  const canManage = canAccess('commissions', 'manage');
   const qc = useQueryClient();
   const [editing, setEditing] = useState(null);
   const [open, setOpen] = useState(false);
@@ -57,12 +60,12 @@ export default function CommissionsPage() {
 
   return (
     <>
-      <PageHeader title="Commissions" actions={<Button startIcon={<AddIcon />} variant="contained" onClick={startNew}>Record commission</Button>} />
+      <PageHeader title="Commissions" subtitle={canManage ? 'Manage commission records and payouts' : 'View commission records'} actions={canManage ? <Button startIcon={<AddIcon />} variant="contained" onClick={startNew}>Record commission</Button> : null} />
       <Card><CardContent>
         {isLoading ? <TableSkeleton /> : (data?.data?.length ? (
           <Box sx={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr style={{ textAlign: 'left' }}>{['Employee', 'Period', 'From', 'To', 'Sales', 'Rate %', 'Amount', 'Actions'].map((h) => (
+              <thead><tr style={{ textAlign: 'left' }}>{['Employee', 'Period', 'From', 'To', 'Sales', 'Rate %', 'Amount', ...(canManage ? ['Actions'] : [])].map((h) => (
                 <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>
               ))}</tr></thead>
               <tbody>
@@ -75,10 +78,12 @@ export default function CommissionsPage() {
                     <td style={{ padding: '10px 8px' }}>{formatCurrency(c.achievedSales)}</td>
                     <td style={{ padding: '10px 8px' }}>{c.commissionRate}%</td>
                     <td style={{ padding: '10px 8px', fontWeight: 700, color: '#1aab50' }}>{formatCurrency(c.commissionAmount)}</td>
-                    <td style={{ padding: '10px 8px' }}>
-                      <Tooltip title="Edit"><IconButton size="small" onClick={() => startEdit(c)}><EditIcon fontSize="small" /></IconButton></Tooltip>
-                      <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setConfirm(c)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
-                    </td>
+                    {canManage && (
+                      <td style={{ padding: '10px 8px' }}>
+                        <Tooltip title="Edit"><IconButton size="small" onClick={() => startEdit(c)}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                        <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setConfirm(c)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -87,7 +92,7 @@ export default function CommissionsPage() {
         ) : <Empty title="No commission records" />)}
       </CardContent></Card>
 
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={open && canManage} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{editing ? 'Edit Commission' : 'Record Commission'}</DialogTitle>
         <form onSubmit={handleSubmit(onSubmit)}>
           <DialogContent>
@@ -116,7 +121,7 @@ export default function CommissionsPage() {
         </form>
       </Dialog>
 
-      <ConfirmDialog open={!!confirm} title="Delete commission" message="Are you sure?" onClose={() => setConfirm(null)} onConfirm={onDelete} confirmText="Delete" danger />
+      <ConfirmDialog open={!!confirm && canManage} title="Delete commission" message="Are you sure?" onClose={() => setConfirm(null)} onConfirm={onDelete} confirmText="Delete" danger />
     </>
   );
 }

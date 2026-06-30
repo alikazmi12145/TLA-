@@ -22,6 +22,7 @@ import { toast } from 'react-toastify';
 import dayjs from 'dayjs';
 import { useState } from 'react';
 import { ROLES } from '../../lib/constants';
+import useSettingsPermissions from '../../hooks/useSettingsPermissions';
 import { attendanceService } from '../../services';
 
 const sections = [
@@ -34,19 +35,19 @@ const sections = [
     items: [
       // Employee/department/holiday management is Super Admin only per matrix
       { to: '/employees', label: 'Employees', icon: <PeopleIcon />, allow: ['SUPER_ADMIN'] },
-      { to: '/departments', label: 'Departments', icon: <GroupWorkIcon />, allow: ['SUPER_ADMIN'] },
-      { to: '/shifts', label: 'Shifts', icon: <AccessTimeIcon />, allow: ['SUPER_ADMIN', 'TEAM_LEADER'] },
-      { to: '/holidays', label: 'Holidays', icon: <EventIcon />, allow: ['SUPER_ADMIN'] },
+      { to: '/departments', label: 'Departments', icon: <GroupWorkIcon />, module: 'departments', allow: Object.values(ROLES) },
+      { to: '/shifts', label: 'Shifts', icon: <AccessTimeIcon />, module: 'shifts', allow: Object.values(ROLES) },
+      { to: '/holidays', label: 'Holidays', icon: <EventIcon />, module: 'holidays', allow: Object.values(ROLES) },
     ],
   },
   {
     title: 'Time',
     items: [
       // Attendance: SUPER_ADMIN + HR (R+W) + TL (read-only)
-      { to: '/attendance', label: 'Attendance', icon: <EventAvailableIcon />, allow: ['SUPER_ADMIN', 'HR_MANAGER', 'TEAM_LEADER'] },
+      { to: '/attendance', label: 'Attendance', icon: <EventAvailableIcon />, module: 'attendance', allow: Object.values(ROLES) },
       { to: '/my/attendance', label: 'My Attendance', icon: <BadgeIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
       // Leaves admin: SUPER_ADMIN + HR
-      { to: '/leaves', label: 'Leaves', icon: <EventBusyIcon />, allow: ['SUPER_ADMIN', 'HR_MANAGER'] },
+      { to: '/leaves', label: 'Leaves', icon: <EventBusyIcon />, module: 'leaves', allow: Object.values(ROLES) },
       { to: '/my/leaves', label: 'My Leaves', icon: <EventBusyIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
     ],
   },
@@ -54,17 +55,17 @@ const sections = [
     title: 'Performance',
     items: [
       // Tasks: SUPER_ADMIN + TL
-      { to: '/targets', label: 'Tasks', icon: <EmojiEventsIcon />, allow: ['SUPER_ADMIN', 'TEAM_LEADER'] },
+      { to: '/targets', label: 'Tasks', icon: <EmojiEventsIcon />, module: 'targets', allow: Object.values(ROLES) },
       { to: '/my/targets', label: 'My Tasks', icon: <EmojiEventsIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
       // Commissions admin: Super Admin only
-      { to: '/commissions', label: 'Commissions', icon: <RequestQuoteIcon />, allow: ['SUPER_ADMIN'] },
+      { to: '/commissions', label: 'Commissions', icon: <RequestQuoteIcon />, module: 'commissions', allow: Object.values(ROLES) },
     ],
   },
   {
     title: 'Payroll',
     items: [
       // Payroll: SUPER_ADMIN + HR (HR sees read-only inside the page)
-      { to: '/payroll', label: 'Payroll', icon: <ReceiptLongIcon />, allow: ['SUPER_ADMIN', 'HR_MANAGER'] },
+      { to: '/payroll', label: 'Payroll', icon: <ReceiptLongIcon />, module: 'payroll', allow: Object.values(ROLES) },
       { to: '/my/payroll', label: 'My Payslips', icon: <ReceiptLongIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
     ],
   },
@@ -72,7 +73,7 @@ const sections = [
     title: 'Insights',
     items: [
       // Reports: Super Admin only
-      { to: '/reports', label: 'Reports', icon: <AssessmentIcon />, allow: ['SUPER_ADMIN'] },
+      { to: '/reports', label: 'Reports', icon: <AssessmentIcon />, module: 'reports', allow: Object.values(ROLES) },
     ],
   },
   {
@@ -83,6 +84,7 @@ const sections = [
 
 export default function Sidebar({ onNavigate }) {
   const role = useSelector((s) => s.auth.user?.role);
+  const { canAccess } = useSettingsPermissions();
   const open = useSelector((s) => s.ui.sidebarOpen);
   const qc = useQueryClient();
 
@@ -128,11 +130,13 @@ export default function Sidebar({ onNavigate }) {
   const isAllowed = (allow) =>
     allow === 'all' || (Array.isArray(allow) && allow.includes(role));
 
+  const isItemAllowed = (item) => isAllowed(item.allow) && (!item.module || canAccess(item.module, 'read'));
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ flex: 1, overflow: 'auto', py: 1 }}>
         {sections.map((sec, i) => {
-          const items = sec.items.filter((it) => isAllowed(it.allow));
+          const items = sec.items.filter((it) => isItemAllowed(it));
           if (!items.length) return null;
           return (
             <Box key={i} sx={{ px: open ? 2 : 1, pb: 1 }}>

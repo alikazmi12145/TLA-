@@ -90,31 +90,42 @@ export default function App() {
             <Route path="/employees/new" element={<EmployeeFormPage />} />
             <Route path="/employees/:id/edit" element={<EmployeeFormPage />} />
             <Route path="/employees/:id" element={<EmployeeViewPage />} />
-            <Route path="/departments" element={<DepartmentsPage />} />
-            <Route path="/holidays" element={<HolidaysPage />} />
-            <Route path="/commissions" element={<CommissionsPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
 
-          {/* Attendance: SUPER_ADMIN + HR (R+W) + TL (read) */}
-          <Route element={<RoleRoute allow={[ROLES.SUPER_ADMIN, ROLES.HR_MANAGER, ROLES.TEAM_LEADER]} />}>
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="departments" />}>
+            <Route path="/departments" element={<DepartmentsPage />} />
+          </Route>
+
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="holidays" />}>
+            <Route path="/holidays" element={<HolidaysPage />} />
+          </Route>
+
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="commissions" />}>
+            <Route path="/commissions" element={<CommissionsPage />} />
+          </Route>
+
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="reports" />}>
+            <Route path="/reports" element={<ReportsPage />} />
+          </Route>
+
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="attendance" />}>
             <Route path="/attendance" element={<AttendancePage />} />
           </Route>
 
-          {/* Leaves: SUPER_ADMIN + HR */}
-          <Route element={<RoleRoute allow={[ROLES.SUPER_ADMIN, ROLES.HR_MANAGER]} />}>
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="leaves" />}>
             <Route path="/leaves" element={<LeavesPage />} />
           </Route>
 
-          {/* Payroll: SUPER_ADMIN + HR (HR is read-only inside the page) */}
-          <Route element={<RoleRoute allow={[ROLES.SUPER_ADMIN, ROLES.HR_MANAGER]} />}>
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="payroll" />}>
             <Route path="/payroll" element={<PayrollPage />} />
           </Route>
 
-          {/* Shifts & Targets: SUPER_ADMIN + Team Leader */}
-          <Route element={<RoleRoute allow={[ROLES.SUPER_ADMIN, ROLES.TEAM_LEADER]} />}>
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="shifts" />}>
             <Route path="/shifts" element={<ShiftsPage />} />
+          </Route>
+
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="targets" />}>
             <Route path="/targets" element={<TargetsPage />} />
           </Route>
 

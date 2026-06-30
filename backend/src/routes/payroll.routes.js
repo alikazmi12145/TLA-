@@ -1,14 +1,12 @@
 const express = require('express');
 const ctrl = require('../controllers/payroll.controller');
-const { protect, authorize } = require('../middleware/auth');
-const { ROLES } = require('../config/constants');
+const { protect } = require('../middleware/auth');
+const { authorizeModule } = require('../middleware/permissions');
 
 const router = express.Router();
 router.use(protect);
-// Payroll read access (HR is read-only per matrix)
-const readers = authorize(ROLES.SUPER_ADMIN, ROLES.HR_MANAGER);
-// Payroll write access (generate, mark paid) — Super Admin only
-const writers = authorize(ROLES.SUPER_ADMIN);
+const readers = authorizeModule('payroll', 'read');
+const writers = authorizeModule('payroll', 'manage');
 
 router.get('/me', ctrl.mine);
 router.get('/monthly-total', readers, ctrl.monthlyTotal);

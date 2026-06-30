@@ -1,11 +1,10 @@
 const express = require('express');
 const ctrl = require('../controllers/report.controller');
-const { protect, authorize } = require('../middleware/auth');
-const { ROLES } = require('../config/constants');
+const { protect } = require('../middleware/auth');
+const { authorizeModule } = require('../middleware/permissions');
 
 const router = express.Router();
-// Reports are Super Admin only per role matrix
-router.use(protect, authorize(ROLES.SUPER_ADMIN));
+router.use(protect, authorizeModule('reports', 'read'));
 
 router.get('/attendance', ctrl.attendance);
 router.get('/leave', ctrl.leave);

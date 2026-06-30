@@ -1,16 +1,16 @@
 const express = require('express');
 const ctrl = require('../controllers/shift.controller');
-const { protect, authorize } = require('../middleware/auth');
-const { ROLES } = require('../config/constants');
+const { protect } = require('../middleware/auth');
+const { authorizeModule } = require('../middleware/permissions');
 
 const router = express.Router();
 router.use(protect);
-// Shifts: SUPER_ADMIN + Team Leader have read+write
-const adminOrTL = authorize(ROLES.SUPER_ADMIN, ROLES.TEAM_LEADER);
+const readers = authorizeModule('shifts', 'read');
+const writers = authorizeModule('shifts', 'manage');
 
-router.get('/', ctrl.list);
-router.post('/', adminOrTL, ctrl.create);
-router.put('/:id', adminOrTL, ctrl.update);
-router.delete('/:id', authorize(ROLES.SUPER_ADMIN), ctrl.remove);
+router.get('/', readers, ctrl.list);
+router.post('/', writers, ctrl.create);
+router.put('/:id', writers, ctrl.update);
+router.delete('/:id', writers, ctrl.remove);
 
 module.exports = router;

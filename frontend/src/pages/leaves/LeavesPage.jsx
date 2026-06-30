@@ -8,12 +8,15 @@ import { toast } from 'react-toastify';
 
 import PageHeader from '../../components/common/PageHeader';
 import { TableSkeleton, Empty } from '../../components/common/States';
+import useSettingsPermissions from '../../hooks/useSettingsPermissions';
 import { leaveService } from '../../services';
 import { LEAVE_STATUS } from '../../lib/constants';
 
 const statusColor = { PENDING: 'warning', APPROVED: 'success', REJECTED: 'error' };
 
 export default function LeavesPage() {
+  const { canAccess } = useSettingsPermissions();
+  const canManage = canAccess('leaves', 'manage');
   const qc = useQueryClient();
   const [filters, setFilters] = useState({ status: '', type: '' });
   const [actioning, setActioning] = useState(null); // { id, status }
@@ -47,7 +50,7 @@ export default function LeavesPage() {
 
   return (
     <>
-      <PageHeader title="Leave Requests" subtitle="Approve or reject leave applications" />
+      <PageHeader title="Leave Requests" subtitle={canManage ? 'Approve or reject leave applications' : 'View leave applications'} />
       <Card sx={{ mb: 2 }}><CardContent>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
           <TextField select size="small" label="Status" sx={{ minWidth: 180 }} value={filters.status}
@@ -83,7 +86,7 @@ export default function LeavesPage() {
                     <td style={{ padding: '10px 8px', maxWidth: 280, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={l.reason}>{l.reason}</td>
                     <td style={{ padding: '10px 8px' }}><Chip size="small" label={l.status} color={statusColor[l.status]} /></td>
                     <td style={{ padding: '10px 8px' }}>
-                      {l.status === 'PENDING' ? (
+                      {canManage && l.status === 'PENDING' ? (
                         <>
                           <Tooltip title="Approve"><IconButton size="small" color="success" onClick={() => setActioning({ id: l._id, status: 'APPROVED' })}><CheckIcon /></IconButton></Tooltip>
                           <Tooltip title="Reject"><IconButton size="small" color="error" onClick={() => setActioning({ id: l._id, status: 'REJECTED' })}><CloseIcon /></IconButton></Tooltip>
@@ -98,7 +101,7 @@ export default function LeavesPage() {
         ) : <Empty title="No leave requests" />)}
       </CardContent></Card>
 
-      <Dialog open={!!actioning} onClose={() => setActioning(null)} maxWidth="sm" fullWidth>
+      <Dialog open={!!actioning && canManage} onClose={() => setActioning(null)} maxWidth="sm" fullWidth>
         <DialogTitle>{actioning?.status === 'APPROVED' ? 'Approve' : 'Reject'} Leave</DialogTitle>
         <DialogContent>
           <TextField label="Remarks (optional)" fullWidth multiline rows={3} value={remarks} onChange={(e) => setRemarks(e.target.value)} sx={{ mt: 1 }} />

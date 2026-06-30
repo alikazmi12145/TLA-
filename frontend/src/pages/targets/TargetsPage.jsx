@@ -5,7 +5,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import NotesIcon from '@mui/icons-material/Notes';
 import dayjs from 'dayjs';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
@@ -13,10 +13,13 @@ import { toast } from 'react-toastify';
 import PageHeader from '../../components/common/PageHeader';
 import { TableSkeleton, Empty } from '../../components/common/States';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import useSettingsPermissions from '../../hooks/useSettingsPermissions';
 import { targetService, employeeService } from '../../services';
 import { TARGET_TYPES } from '../../lib/constants';
 
 export default function TargetsPage() {
+  const { canAccess } = useSettingsPermissions();
+  const canManage = canAccess('targets', 'manage');
   const qc = useQueryClient();
   const [editing, setEditing] = useState(null);
   const [open, setOpen] = useState(false);
@@ -30,7 +33,7 @@ export default function TargetsPage() {
   const { data, isLoading } = useQuery({ queryKey: ['targets'], queryFn: () => targetService.list({}) });
   const { data: emps } = useQuery({ queryKey: ['emps-all'], queryFn: () => employeeService.list({ limit: 100 }) });
   const { data: ranking } = useQuery({ queryKey: ['target-ranking'], queryFn: targetService.ranking });
-  const { register, handleSubmit, reset } = useForm();
+  const { register, handleSubmit, reset, control } = useForm();
 
   useEffect(() => {
     if (focusId && focusRef.current) {
@@ -69,7 +72,7 @@ export default function TargetsPage() {
 
   return (
     <>
-      <PageHeader title="Tasks" subtitle="Track one-off / weekly / monthly performance tasks" actions={<Button startIcon={<AddIcon />} variant="contained" onClick={startNew}>Set task</Button>} />
+      <PageHeader title="Tasks" subtitle={canManage ? 'Track one-off / weekly / monthly performance tasks' : 'View task progress and notes'} actions={canManage ? <Button startIcon={<AddIcon />} variant="contained" onClick={startNew}>Set task</Button> : null} />
       <Card sx={{ mb: 2 }}><CardContent>
         <Box sx={{ fontWeight: 700, mb: 1 }}>Top Performers</Box>
         <Stack spacing={1}>
@@ -90,7 +93,7 @@ export default function TargetsPage() {
         {isLoading ? <TableSkeleton /> : (data?.data?.length ? (
           <Box sx={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr style={{ textAlign: 'left' }}>{['Employee', 'Type', 'Period', 'Task', 'Achieved', 'Notes', 'Actions'].map((h) => (
+              <thead><tr style={{ textAlign: 'left' }}>{['Employee', 'Type', 'Period', 'Task', 'Achieved', 'Notes', ...(canManage ? ['Actions'] : [])].map((h) => (
                 <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>
               ))}</tr></thead>
               <tbody>
@@ -143,10 +146,12 @@ export default function TargetsPage() {
                           <Box component="span" sx={{ opacity: 0.5 }}>—</Box>
                         )}
                       </td>
-                      <td style={{ padding: '10px 8px' }}>
-                        <Tooltip title="Edit"><IconButton size="small" onClick={() => startEdit(t)}><EditIcon fontSize="small" /></IconButton></Tooltip>
-                        <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setConfirm(t)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
-                      </td>
+                      {canManage && (
+                        <td style={{ padding: '10px 8px' }}>
+                          <Tooltip title="Edit"><IconButton size="small" onClick={() => startEdit(t)}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                          <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setConfirm(t)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -156,17 +161,37 @@ export default function TargetsPage() {
         ) : <Empty title="No targets yet" />)}
       </CardContent></Card>
 
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={open && canManage} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{editing ? 'Edit Task' : 'Set Task'}</DialogTitle>
         <form onSubmit={handleSubmit(onSubmit)}>
           <DialogContent>
             <Stack spacing={2} sx={{ mt: 1 }}>
-              <TextField select label="Employee" required fullWidth defaultValue="" {...register('employee', { required: true })}>
-                {(emps?.data || []).map((e) => <MenuItem key={e._id} value={e._id}>{e.fullName} ({e.employeeId})</MenuItem>)}
-              </TextField>
-              <TextField select label="Type" required fullWidth defaultValue="ONCE" {...register('type', { required: true })}>
-                {TARGET_TYPES.map((t) => <MenuItem key={t} value={t}>{TYPE_LABEL[t] || t}</MenuItem>)}
-              </TextField>
+              <Controller
+                name="employee"
+                control={control}
+                defaultValue=""
+                rules={{ required: true }}
+                render={({ field }) => (
+                  <TextField select label="Employee" required fullWidth {...field} value={field.value || ''}>
+                    {(emps?.data || []).map((e) => (
+                      <MenuItem key={e._id} value={e._id}>{e.fullName} ({e.employeeId})</MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
+              <Controller
+                name="type"
+                control={control}
+                defaultValue="ONCE"
+                rules={{ required: true }}
+                render={({ field }) => (
+                  <TextField select label="Type" required fullWidth {...field} value={field.value || 'ONCE'}>
+                    {TARGET_TYPES.map((t) => (
+                      <MenuItem key={t} value={t}>{TYPE_LABEL[t] || t}</MenuItem>
+                    ))}
+                  </TextField>
+                )}
+              />
               <Stack direction="row" spacing={2}>
                 <TextField type="date" label="From" InputLabelProps={{ shrink: true }} required fullWidth {...register('periodStart', { required: true })} />
                 <TextField type="date" label="To" InputLabelProps={{ shrink: true }} required fullWidth {...register('periodEnd', { required: true })} />
@@ -185,7 +210,7 @@ export default function TargetsPage() {
         </form>
       </Dialog>
 
-      <ConfirmDialog open={!!confirm} title="Delete task" message="Are you sure?" onClose={() => setConfirm(null)} onConfirm={onDelete} confirmText="Delete" danger />
+      <ConfirmDialog open={!!confirm && canManage} title="Delete task" message="Are you sure?" onClose={() => setConfirm(null)} onConfirm={onDelete} confirmText="Delete" danger />
 
       <Dialog open={!!noteView} onClose={() => setNoteView(null)} maxWidth="xs" fullWidth>
         <DialogTitle>Admin Note</DialogTitle>

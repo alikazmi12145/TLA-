@@ -8,6 +8,7 @@ import { toast } from 'react-toastify';
 
 import PageHeader from '../../components/common/PageHeader';
 import { TableSkeleton, Empty } from '../../components/common/States';
+import useSettingsPermissions from '../../hooks/useSettingsPermissions';
 import { attendanceService, employeeService } from '../../services';
 import { minutesToHours } from '../../lib/format';
 import { ROLES } from '../../lib/constants';
@@ -21,8 +22,9 @@ const EDITABLE_STATUSES = ['PRESENT', 'LATE', 'ABSENT'];
 
 export default function AttendancePage() {
   const role = useSelector((s) => s.auth.user?.role);
+  const { canAccess } = useSettingsPermissions();
   const isSuperAdmin = role === ROLES.SUPER_ADMIN;
-  const canEditStatus = role === ROLES.SUPER_ADMIN || role === ROLES.HR_MANAGER; // Team Leader is read-only
+  const canEditStatus = canAccess('attendance', 'manage');
   const [filters, setFilters] = useState({ month: '', status: '', employee: '' });
   const [noteView, setNoteView] = useState({ open: false, employee: '', date: null, note: '' });
   const openNote = (a) => setNoteView({

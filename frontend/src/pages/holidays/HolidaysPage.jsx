@@ -11,9 +11,12 @@ import { toast } from 'react-toastify';
 import PageHeader from '../../components/common/PageHeader';
 import { TableSkeleton, Empty } from '../../components/common/States';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import useSettingsPermissions from '../../hooks/useSettingsPermissions';
 import { holidayService } from '../../services';
 
 export default function HolidaysPage() {
+  const { canAccess } = useSettingsPermissions();
+  const canManage = canAccess('holidays', 'manage');
   const qc = useQueryClient();
   const [year, setYear] = useState(dayjs().year());
   const [editing, setEditing] = useState(null);
@@ -51,7 +54,7 @@ export default function HolidaysPage() {
 
   return (
     <>
-      <PageHeader title="Holidays" actions={<Button startIcon={<AddIcon />} variant="contained" onClick={startNew}>Add holiday</Button>} />
+      <PageHeader title="Holidays" subtitle={canManage ? 'Manage public holidays and closures' : 'View the holiday calendar'} actions={canManage ? <Button startIcon={<AddIcon />} variant="contained" onClick={startNew}>Add holiday</Button> : null} />
       <Card sx={{ mb: 2 }}><CardContent>
         <TextField type="number" label="Year" size="small" value={year} onChange={(e) => setYear(Number(e.target.value))} />
       </CardContent></Card>
@@ -60,7 +63,7 @@ export default function HolidaysPage() {
           <Box sx={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left' }}>
-                {['Title', 'Date', 'Description', 'Actions'].map((h) => (
+                {['Title', 'Date', 'Description', ...(canManage ? ['Actions'] : [])].map((h) => (
                   <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>
                 ))}
               </tr></thead>
@@ -70,10 +73,12 @@ export default function HolidaysPage() {
                     <td style={{ padding: '10px 8px', fontWeight: 600 }}>{h.title}</td>
                     <td style={{ padding: '10px 8px' }}>{dayjs(h.date).format('ddd, MMM D, YYYY')}</td>
                     <td style={{ padding: '10px 8px' }}>{h.description || '—'}</td>
-                    <td style={{ padding: '10px 8px' }}>
-                      <Tooltip title="Edit"><IconButton size="small" onClick={() => startEdit(h)}><EditIcon fontSize="small" /></IconButton></Tooltip>
-                      <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setConfirm(h)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
-                    </td>
+                    {canManage && (
+                      <td style={{ padding: '10px 8px' }}>
+                        <Tooltip title="Edit"><IconButton size="small" onClick={() => startEdit(h)}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                        <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setConfirm(h)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -82,7 +87,7 @@ export default function HolidaysPage() {
         ) : <Empty title="No holidays for this year" />)}
       </CardContent></Card>
 
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={open && canManage} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{editing ? 'Edit Holiday' : 'Add Holiday'}</DialogTitle>
         <form onSubmit={handleSubmit(onSubmit)}>
           <DialogContent>
@@ -99,7 +104,7 @@ export default function HolidaysPage() {
         </form>
       </Dialog>
 
-      <ConfirmDialog open={!!confirm} title="Delete holiday" message={`Delete "${confirm?.title}"?`} onClose={() => setConfirm(null)} onConfirm={onDelete} confirmText="Delete" danger />
+      <ConfirmDialog open={!!confirm && canManage} title="Delete holiday" message={`Delete "${confirm?.title}"?`} onClose={() => setConfirm(null)} onConfirm={onDelete} confirmText="Delete" danger />
     </>
   );
 }

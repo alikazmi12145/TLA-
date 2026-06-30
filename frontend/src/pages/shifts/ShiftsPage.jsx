@@ -10,9 +10,12 @@ import { toast } from 'react-toastify';
 import PageHeader from '../../components/common/PageHeader';
 import { TableSkeleton, Empty } from '../../components/common/States';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
+import useSettingsPermissions from '../../hooks/useSettingsPermissions';
 import { shiftService } from '../../services';
 
 export default function ShiftsPage() {
+  const { canAccess } = useSettingsPermissions();
+  const canManage = canAccess('shifts', 'manage');
   const qc = useQueryClient();
   const [editing, setEditing] = useState(null);
   const [open, setOpen] = useState(false);
@@ -38,13 +41,13 @@ export default function ShiftsPage() {
 
   return (
     <>
-      <PageHeader title="Shifts" actions={<Button startIcon={<AddIcon />} variant="contained" onClick={startNew}>Add shift</Button>} />
+      <PageHeader title="Shifts" subtitle={canManage ? 'Create and update shift schedules' : 'View shift schedules'} actions={canManage ? <Button startIcon={<AddIcon />} variant="contained" onClick={startNew}>Add shift</Button> : null} />
       <Card><CardContent>
         {isLoading ? <TableSkeleton /> : (data?.data?.length ? (
           <Box sx={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left' }}>
-                {['Name', 'Type', 'Start', 'End', 'Grace (m)', 'Actions'].map((h) => (
+                {['Name', 'Type', 'Start', 'End', 'Grace (m)', ...(canManage ? ['Actions'] : [])].map((h) => (
                   <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>
                 ))}
               </tr></thead>
@@ -56,10 +59,12 @@ export default function ShiftsPage() {
                     <td style={{ padding: '10px 8px' }}>{s.startTime}</td>
                     <td style={{ padding: '10px 8px' }}>{s.endTime}</td>
                     <td style={{ padding: '10px 8px' }}>{s.graceMinutes}</td>
-                    <td style={{ padding: '10px 8px' }}>
-                      <Tooltip title="Edit"><IconButton size="small" onClick={() => startEdit(s)}><EditIcon fontSize="small" /></IconButton></Tooltip>
-                      <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setConfirm(s)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
-                    </td>
+                    {canManage && (
+                      <td style={{ padding: '10px 8px' }}>
+                        <Tooltip title="Edit"><IconButton size="small" onClick={() => startEdit(s)}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                        <Tooltip title="Delete"><IconButton size="small" color="error" onClick={() => setConfirm(s)}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -68,7 +73,7 @@ export default function ShiftsPage() {
         ) : <Empty title="No shifts" />)}
       </CardContent></Card>
 
-      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={open && canManage} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{editing ? 'Edit Shift' : 'Add Shift'}</DialogTitle>
         <form onSubmit={handleSubmit(onSubmit)}>
           <DialogContent>
@@ -91,7 +96,7 @@ export default function ShiftsPage() {
         </form>
       </Dialog>
 
-      <ConfirmDialog open={!!confirm} title="Delete shift" message={`Delete "${confirm?.name}"?`} onClose={() => setConfirm(null)} onConfirm={onDelete} confirmText="Delete" danger />
+      <ConfirmDialog open={!!confirm && canManage} title="Delete shift" message={`Delete "${confirm?.name}"?`} onClose={() => setConfirm(null)} onConfirm={onDelete} confirmText="Delete" danger />
     </>
   );
 }

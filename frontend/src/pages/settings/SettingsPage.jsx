@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Card, CardContent, Stack, TextField, Button, Box, Avatar, Typography } from '@mui/material';
+import { Card, CardContent, Stack, TextField, Button, Box, Avatar, Typography, MenuItem, Grid, Divider } from '@mui/material';
 import UploadIcon from '@mui/icons-material/Upload';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -8,13 +8,27 @@ import { toast } from 'react-toastify';
 import PageHeader from '../../components/common/PageHeader';
 import { settingService } from '../../services';
 import { asset } from '../../lib/format';
+import { PERMISSION_MODULES, normalizeRolePermissions } from '../../lib/permissions';
+
+const ACCESS_OPTIONS = [
+  { value: 'none', label: 'No access' },
+  { value: 'read', label: 'View only' },
+  { value: 'manage', label: 'Manage' },
+];
 
 export default function SettingsPage() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ['settings'], queryFn: settingService.get });
   const { register, handleSubmit, reset, watch } = useForm();
 
-  useEffect(() => { if (data?.data) reset(data.data); }, [data, reset]);
+  useEffect(() => {
+    if (data?.data) {
+      reset({
+        ...data.data,
+        permissions: normalizeRolePermissions(data.data.permissions),
+      });
+    }
+  }, [data, reset]);
 
   const logoFile = watch('logo');
   const sigFile = watch('ceoSignature');
@@ -23,9 +37,10 @@ export default function SettingsPage() {
     try {
       const fd = new FormData();
       Object.keys(values).forEach((k) => {
-        if (k === 'logo' || k === 'ceoSignature') return;
+        if (k === 'logo' || k === 'ceoSignature' || k === 'permissions') return;
         if (values[k] !== undefined && values[k] !== null) fd.append(k, values[k]);
       });
+      fd.append('permissions', JSON.stringify(normalizeRolePermissions(values.permissions)));
       if (values.logo && values.logo[0]) fd.append('logo', values.logo[0]);
       if (values.ceoSignature && values.ceoSignature[0]) fd.append('ceoSignature', values.ceoSignature[0]);
       await settingService.update(fd);
@@ -110,6 +125,44 @@ export default function SettingsPage() {
               <TextField type="number" label="Tax %" fullWidth helperText="Applied on gross salary" {...register('taxPercentage', { valueAsNumber: true })} />
               <TextField type="number" label="Payroll closing date" fullWidth helperText="Day of month payroll is locked (1-31)" {...register('payrollClosingDate', { valueAsNumber: true })} />
             </Stack>
+
+            <Divider flexItem />
+            <Typography variant="overline" color="text.secondary">Role Permissions</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Admin can choose which modules HR and Team Leaders can open, and whether they can only view or fully manage them.
+            </Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={4}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>Module</Typography>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>HR</Typography>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>Team Leader</Typography>
+              </Grid>
+              {PERMISSION_MODULES.map((module) => (
+                <Grid container item spacing={2} key={module.key}>
+                  <Grid item xs={12} md={4}>
+                    <TextField fullWidth value={module.label} InputProps={{ readOnly: true }} />
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <TextField select fullWidth label="HR permission" defaultValue="none" {...register(`permissions.HR_MANAGER.${module.key}`)}>
+                      {ACCESS_OPTIONS.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                      ))}
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <TextField select fullWidth label="Team Leader permission" defaultValue="none" {...register(`permissions.TEAM_LEADER.${module.key}`)}>
+                      {ACCESS_OPTIONS.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                      ))}
+                    </TextField>
+                  </Grid>
+                </Grid>
+              ))}
+            </Grid>
 
             <Stack direction="row" justifyContent="flex-end">
               <Button type="submit" variant="contained" size="large">Save changes</Button>

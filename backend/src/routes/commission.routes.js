@@ -1,18 +1,18 @@
 const express = require('express');
 const ctrl = require('../controllers/commission.controller');
-const { protect, authorize } = require('../middleware/auth');
-const { ROLES } = require('../config/constants');
+const { protect } = require('../middleware/auth');
+const { authorizeModule } = require('../middleware/permissions');
 
 const router = express.Router();
 router.use(protect);
-// Commissions: Super Admin only for admin-level operations
-const adminOnly = authorize(ROLES.SUPER_ADMIN);
+const readers = authorizeModule('commissions', 'read');
+const writers = authorizeModule('commissions', 'manage');
 
 router.get('/me', ctrl.mine);
-router.get('/monthly-total', adminOnly, ctrl.monthlyTotal);
-router.get('/', adminOnly, ctrl.list);
-router.post('/', adminOnly, ctrl.create);
-router.put('/:id', adminOnly, ctrl.update);
-router.delete('/:id', adminOnly, ctrl.remove);
+router.get('/monthly-total', readers, ctrl.monthlyTotal);
+router.get('/', readers, ctrl.list);
+router.post('/', writers, ctrl.create);
+router.put('/:id', writers, ctrl.update);
+router.delete('/:id', writers, ctrl.remove);
 
 module.exports = router;

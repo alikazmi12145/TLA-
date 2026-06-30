@@ -3,20 +3,19 @@ import { Card, CardContent, Stack, TextField, Button, MenuItem, Chip, Box, Dialo
 import DownloadIcon from '@mui/icons-material/Download';
 import dayjs from 'dayjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 
 import PageHeader from '../../components/common/PageHeader';
 import { TableSkeleton, Empty } from '../../components/common/States';
+import useSettingsPermissions from '../../hooks/useSettingsPermissions';
 import { payrollService } from '../../services';
 import { formatCurrency } from '../../lib/format';
-import { ROLES } from '../../lib/constants';
 import api from '../../lib/api';
 import GeneratePayrollDialog from './GeneratePayrollDialog';
 
 export default function PayrollPage() {
-  const role = useSelector((s) => s.auth.user?.role);
-  const canWrite = role === ROLES.SUPER_ADMIN; // HR is read-only
+  const { canAccess } = useSettingsPermissions();
+  const canWrite = canAccess('payroll', 'manage');
   const qc = useQueryClient();
   const [filters, setFilters] = useState({ month: '', year: '' }); // '' = "All"
   const [open, setOpen] = useState(false);
