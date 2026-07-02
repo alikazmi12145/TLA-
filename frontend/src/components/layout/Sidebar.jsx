@@ -14,6 +14,7 @@ import BadgeIcon from '@mui/icons-material/Badge';
 import GroupWorkIcon from '@mui/icons-material/GroupWork';
 import LoginIcon from '@mui/icons-material/Login';
 import LogoutIcon from '@mui/icons-material/Logout';
+import FingerprintIcon from '@mui/icons-material/Fingerprint';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import { NavLink } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -78,7 +79,10 @@ const sections = [
   },
   {
     title: 'System',
-    items: [{ to: '/settings', label: 'Settings', icon: <SettingsIcon />, allow: ['SUPER_ADMIN'] }],
+    items: [
+      { to: '/devices', label: 'Biometric Devices', icon: <FingerprintIcon />, module: 'devices', allow: Object.values(ROLES) },
+      { to: '/settings', label: 'Settings', icon: <SettingsIcon />, allow: ['SUPER_ADMIN'] },
+    ],
   },
 ];
 

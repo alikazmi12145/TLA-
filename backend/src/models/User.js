@@ -1,6 +1,12 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
-const { ROLES, EMP_STATUS } = require('../config/constants');
+const {
+  ROLES,
+  EMP_STATUS,
+  SYNC_STATUS,
+  FINGERPRINT_STATUS,
+  FACE_STATUS,
+} = require('../config/constants');
 
 const userSchema = new mongoose.Schema(
   {
@@ -24,6 +30,43 @@ const userSchema = new mongoose.Schema(
     fingerprintId: { type: String, unique: true, sparse: true },
     status: { type: String, enum: EMP_STATUS, default: 'ACTIVE' },
     isActive: { type: Boolean, default: true },
+
+    // -------- Biometric device integration --------
+    // The device this employee is enrolled on (ZKTeco K40 typically).
+    deviceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Device', index: true },
+    // Numeric or string ID on the device (ZK "userId"). Must be unique per device.
+    deviceUserId: { type: String, trim: true, index: true },
+    // Has the record been pushed to the device successfully?
+    deviceSynced: { type: Boolean, default: false, index: true },
+    syncStatus: {
+      type: String,
+      enum: Object.values(SYNC_STATUS),
+      default: SYNC_STATUS.PENDING,
+      index: true,
+    },
+    // Enrollment state pulled back from the device (fingerprints/faces NEVER live in Mongo).
+    fingerprintStatus: {
+      type: String,
+      enum: Object.values(FINGERPRINT_STATUS),
+      default: FINGERPRINT_STATUS.NOT_ENROLLED,
+      index: true,
+    },
+    faceStatus: {
+      type: String,
+      enum: Object.values(FACE_STATUS),
+      default: FACE_STATUS.NOT_ENROLLED,
+    },
+    // Number of finger templates registered on the device (0..10)
+    fingerCount: { type: Number, default: 0 },
+    lastSync: { type: Date },
+    lastAttendance: { type: Date },
+    // Last error message when a sync operation failed
+    syncError: { type: String },
+    // ZKTeco privilege (0=user, 14=admin)
+    devicePrivilege: { type: Number, default: 0 },
+    // Whether the record on the device is currently enabled (some models support disable/enable)
+    deviceUserEnabled: { type: Boolean, default: true },
+
     refreshTokens: [{ token: String, createdAt: { type: Date, default: Date.now } }],
     resetPasswordToken: { type: String, select: false },
     resetPasswordExpires: { type: Date, select: false },

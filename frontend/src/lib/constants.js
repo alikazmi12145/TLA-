@@ -10,4 +10,26 @@ export const LEAVE_STATUS = ['PENDING', 'APPROVED', 'REJECTED'];
 export const ATTENDANCE_STATUS = ['PRESENT', 'ABSENT', 'LEAVE', 'HOLIDAY', 'LATE', 'HALF_DAY'];
 export const TARGET_TYPES = ['ONCE', 'WEEKLY', 'MONTHLY'];
 
+export const SYNC_STATUS = {
+  PENDING: 'PENDING',
+  SYNCED: 'SYNCED',
+  FAILED: 'FAILED',
+  DISABLED: 'DISABLED',
+};
+
+export const FINGERPRINT_STATUS = {
+  NOT_ENROLLED: 'NOT_ENROLLED',
+  ENROLLED: 'ENROLLED',
+  DISABLED: 'DISABLED',
+};
+
+export const DEVICE_CONN_STATUS = {
+  ONLINE: 'ONLINE',
+  OFFLINE: 'OFFLINE',
+  UNKNOWN: 'UNKNOWN',
+  ERROR: 'ERROR',
+};
+
+export const DEVICE_CONN_TYPE = ['TCP', 'UDP'];
+
 export const ASSET_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000';

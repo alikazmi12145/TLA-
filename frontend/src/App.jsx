@@ -18,6 +18,10 @@ import EmployeesPage from './pages/employees/EmployeesPage';
 import EmployeeFormPage from './pages/employees/EmployeeFormPage';
 import EmployeeViewPage from './pages/employees/EmployeeViewPage';
 
+import DevicesPage from './pages/devices/DevicesPage';
+import DeviceFormPage from './pages/devices/DeviceFormPage';
+import DeviceViewPage from './pages/devices/DeviceViewPage';
+
 import AttendancePage from './pages/attendance/AttendancePage';
 import MyAttendancePage from './pages/attendance/MyAttendancePage';
 
@@ -91,6 +95,13 @@ export default function App() {
             <Route path="/employees/:id/edit" element={<EmployeeFormPage />} />
             <Route path="/employees/:id" element={<EmployeeViewPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/devices/new" element={<DeviceFormPage />} />
+            <Route path="/devices/:id/edit" element={<DeviceFormPage />} />
+          </Route>
+
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="devices" />}>
+            <Route path="/devices" element={<DevicesPage />} />
+            <Route path="/devices/:id" element={<DeviceViewPage />} />
           </Route>
 
           <Route element={<RoleRoute allow={Object.values(ROLES)} module="departments" />}>

@@ -24,6 +24,30 @@ export const employeeService = {
   update: (id, form) => api.put(`/employees/${id}`, form, { headers: { 'Content-Type': 'multipart/form-data' } }).then((r) => r.data),
   remove: (id) => api.delete(`/employees/${id}`).then((r) => r.data),
   toggle: (id) => api.patch(`/employees/${id}/toggle`).then((r) => r.data),
+  // Biometric
+  syncToDevice: (id, deviceId) => api.post(`/employees/${id}/sync`, { deviceId }).then((r) => r.data),
+  deleteFromDevice: (id) => api.post(`/employees/${id}/delete-device`).then((r) => r.data),
+  refreshFingerprint: (id) => api.post(`/employees/${id}/refresh-fingerprint`).then((r) => r.data),
+  enableOnDevice: (id) => api.post(`/employees/${id}/enable-device`).then((r) => r.data),
+  disableOnDevice: (id) => api.post(`/employees/${id}/disable-device`).then((r) => r.data),
+};
+
+export const deviceService = {
+  list: () => api.get('/devices').then((r) => r.data),
+  get: (id) => api.get(`/devices/${id}`).then((r) => r.data),
+  create: (data) => api.post('/devices', data).then((r) => r.data),
+  update: (id, data) => api.put(`/devices/${id}`, data).then((r) => r.data),
+  remove: (id) => api.delete(`/devices/${id}`).then((r) => r.data),
+  connect: (id) => api.post(`/devices/${id}/connect`).then((r) => r.data),
+  disconnect: (id) => api.post(`/devices/${id}/disconnect`).then((r) => r.data),
+  test: (id) => api.post(`/devices/${id}/test`).then((r) => r.data),
+  restart: (id) => api.post(`/devices/${id}/restart`).then((r) => r.data),
+  syncAll: (id) => api.post(`/devices/${id}/sync-all`).then((r) => r.data),
+  importEmployees: (id) => api.post(`/devices/${id}/import-employees`).then((r) => r.data),
+  importAttendance: (id, clearAfter = false) =>
+    api.post(`/devices/${id}/import-attendance`, { clearAfter }).then((r) => r.data),
+  refreshFingerprints: (id) => api.post(`/devices/${id}/refresh-fingerprints`).then((r) => r.data),
+  clearAttendance: (id) => api.post(`/devices/${id}/clear-attendance`).then((r) => r.data),
 };
 
 export const departmentService = {

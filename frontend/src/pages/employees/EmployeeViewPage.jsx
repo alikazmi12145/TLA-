@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 
 import PageHeader from '../../components/common/PageHeader';
 import { Loading } from '../../components/common/States';
+import BiometricCard from '../../components/biometric/BiometricCard';
 import { employeeService } from '../../services';
 import { asset, initials, formatCurrency } from '../../lib/format';
 
@@ -61,6 +62,10 @@ export default function EmployeeViewPage() {
               Last login: {e.lastLoginAt ? dayjs(e.lastLoginAt).format('MMM D, YYYY HH:mm') : '—'}
             </Typography>
           </CardContent></Card>
+        </Grid>
+
+        <Grid item xs={12}>
+          <BiometricCard employee={e} />
         </Grid>
       </Grid>
     </>

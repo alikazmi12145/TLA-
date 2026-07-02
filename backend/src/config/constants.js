@@ -22,4 +22,55 @@ module.exports = {
   LEAVE_STATUS: { PENDING: 'PENDING', APPROVED: 'APPROVED', REJECTED: 'REJECTED' },
   TARGET_TYPES: ['ONCE', 'WEEKLY', 'MONTHLY'],
   EMP_STATUS: ['ACTIVE', 'INACTIVE', 'TERMINATED', 'ON_LEAVE'],
+
+  // -------- Biometric integration --------
+  SYNC_STATUS: {
+    PENDING: 'PENDING',
+    SYNCED: 'SYNCED',
+    FAILED: 'FAILED',
+    DISABLED: 'DISABLED',
+  },
+  FINGERPRINT_STATUS: {
+    NOT_ENROLLED: 'NOT_ENROLLED',
+    ENROLLED: 'ENROLLED',
+    DISABLED: 'DISABLED',
+  },
+  FACE_STATUS: {
+    NOT_ENROLLED: 'NOT_ENROLLED',
+    ENROLLED: 'ENROLLED',
+    UNSUPPORTED: 'UNSUPPORTED',
+  },
+  DEVICE_CONN_STATUS: {
+    ONLINE: 'ONLINE',
+    OFFLINE: 'OFFLINE',
+    UNKNOWN: 'UNKNOWN',
+    ERROR: 'ERROR',
+  },
+  DEVICE_CONN_TYPE: {
+    TCP: 'TCP',
+    UDP: 'UDP',
+  },
+  // Attendance check-in type as reported by device
+  CHECK_TYPE: {
+    CHECK_IN: 'CHECK_IN',
+    CHECK_OUT: 'CHECK_OUT',
+    BREAK_OUT: 'BREAK_OUT',
+    BREAK_IN: 'BREAK_IN',
+    OVERTIME_IN: 'OVERTIME_IN',
+    OVERTIME_OUT: 'OVERTIME_OUT',
+  },
+  // Verification mode reported by ZKTeco device
+  VERIFICATION_MODE: {
+    FINGERPRINT: 'FINGERPRINT',
+    PASSWORD: 'PASSWORD',
+    CARD: 'CARD',
+    FACE: 'FACE',
+    OTHER: 'OTHER',
+  },
+  // ZKTeco privilege codes
+  ZK_PRIVILEGE: {
+    USER: 0,
+    ENROLLER: 2,
+    ADMIN: 14,
+  },
 };

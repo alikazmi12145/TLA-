@@ -21,4 +21,11 @@ router.delete('/:id', adminOnly, ctrl.remove);
 router.patch('/:id/toggle', adminOnly, ctrl.toggleStatus);
 router.post('/:id/reset-password', adminOnly, ctrl.resetEmployeePassword);
 
+// -------- Biometric device operations for a single employee --------
+router.post('/:id/sync', adminOnly, ctrl.syncToDevice);
+router.post('/:id/delete-device', adminOnly, ctrl.deleteFromDevice);
+router.post('/:id/refresh-fingerprint', adminOnly, ctrl.refreshFingerprint);
+router.post('/:id/enable-device', adminOnly, ctrl.enableOnDevice);
+router.post('/:id/disable-device', adminOnly, ctrl.disableOnDevice);
+
 module.exports = router;

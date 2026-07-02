@@ -4,8 +4,10 @@ import { useForm, Controller } from 'react-hook-form';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
+import { useState } from 'react';
 
 import PageHeader from '../../components/common/PageHeader';
+import BiometricStepperDialog from '../../components/biometric/BiometricStepperDialog';
 import { employeeService, departmentService, shiftService } from '../../services';
 import { ROLES } from '../../lib/constants';
 import { asset, initials } from '../../lib/format';
@@ -66,6 +68,10 @@ export default function EmployeeFormPage() {
 
   const profilePic = watch('profilePicture');
 
+  // ---- Biometric create-employee stepper state ----
+  const [stepper, setStepper] = useState({ open: false, step: 0, error: null, result: null });
+  const closeStepper = () => setStepper({ open: false, step: 0, error: null, result: null });
+
   const onSubmit = async (values) => {
     const fd = new FormData();
     Object.entries(values).forEach(([k, v]) => {
@@ -85,12 +91,37 @@ export default function EmployeeFormPage() {
       if (isEdit) {
         await employeeService.update(id, fd);
         toast.success('Employee updated');
-      } else {
-        await employeeService.create(fd);
-        toast.success('Employee created');
+        navigate('/employees');
+        return;
       }
-      navigate('/employees');
-    } catch {}
+
+      // -------- Create with biometric stepper --------
+      setStepper({ open: true, step: 0, error: null, result: null });
+      // Step 0 (Saving) -> Step 1 (Connecting) shown while request is in-flight.
+      // We advance the visual steps as the network round-trip progresses.
+      const advance = (s) => setStepper((prev) => (prev.open ? { ...prev, step: s } : prev));
+      const timers = [
+        setTimeout(() => advance(1), 300),
+        setTimeout(() => advance(2), 900),
+        setTimeout(() => advance(3), 1500),
+      ];
+      let res;
+      try {
+        res = await employeeService.create(fd);
+      } finally {
+        timers.forEach(clearTimeout);
+      }
+      const biometric = res?.data?.biometric || { ok: false };
+      setStepper({ open: true, step: 4, error: null, result: { biometric } });
+      if (biometric.ok) {
+        toast.success('Employee created successfully. User synchronized to device. Please enroll fingerprint on the biometric device.');
+      } else {
+        toast.warn('Employee created. Device synchronization failed.');
+      }
+    } catch (err) {
+      const message = err?.response?.data?.message || err?.message || 'Create failed';
+      setStepper((prev) => (prev.open ? { ...prev, error: message } : prev));
+    }
   };
 
   return (
@@ -210,6 +241,15 @@ export default function EmployeeFormPage() {
           </form>
         </CardContent>
       </Card>
+
+      <BiometricStepperDialog
+        open={stepper.open}
+        activeStep={stepper.step}
+        error={stepper.error}
+        result={stepper.result}
+        onClose={() => { closeStepper(); if (stepper.step >= 4 && !stepper.error) navigate('/employees'); }}
+        onGoToList={() => { closeStepper(); navigate('/employees'); }}
+      />
     </>
   );
 }

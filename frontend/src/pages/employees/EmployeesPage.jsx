@@ -19,6 +19,8 @@ import { TableSkeleton, Empty } from '../../components/common/States';
 import { employeeService, departmentService } from '../../services';
 import { ROLES } from '../../lib/constants';
 import { asset, initials } from '../../lib/format';
+import { SyncChip, FingerprintChip } from '../../lib/biometric.jsx';
+import dayjs from 'dayjs';
 
 export default function EmployeesPage() {
   const navigate = useNavigate();
@@ -99,7 +101,7 @@ export default function EmployeesPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ textAlign: 'left' }}>
-                    {['Employee', 'ID', 'Role', 'Department', 'Designation', 'Status', 'Actions'].map((h) => (
+                    {['Employee', 'ID', 'Role', 'Department', 'Designation', 'Status', 'Device', 'Device Status', 'Fingerprint', 'Last Sync', 'Actions'].map((h) => (
                       <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>
                     ))}
                   </tr>
@@ -124,6 +126,21 @@ export default function EmployeesPage() {
                       <td style={{ padding: '12px 8px' }}>{u.designation || '-'}</td>
                       <td style={{ padding: '12px 8px' }}>
                         <Chip size="small" label={u.status} color={u.isActive ? 'success' : 'default'} />
+                      </td>
+                      <td style={{ padding: '12px 8px', fontSize: 12 }}>
+                        {u.deviceId ? (
+                          <>
+                            <div style={{ fontWeight: 600 }}>{u.deviceId?.name || 'Device'}</div>
+                            <div style={{ opacity: 0.6 }}>UID {u.deviceUserId || '—'}</div>
+                          </>
+                        ) : (
+                          <span style={{ opacity: 0.5 }}>—</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 8px' }}><SyncChip status={u.syncStatus} /></td>
+                      <td style={{ padding: '12px 8px' }}><FingerprintChip status={u.fingerprintStatus} /></td>
+                      <td style={{ padding: '12px 8px', fontSize: 12 }}>
+                        {u.lastSync ? dayjs(u.lastSync).format('MMM D, HH:mm') : '—'}
                       </td>
                       <td style={{ padding: '12px 8px' }}>
                         <Tooltip title="View"><IconButton size="small" onClick={() => navigate(`/employees/${u._id}`)}><VisibilityIcon fontSize="small" /></IconButton></Tooltip>

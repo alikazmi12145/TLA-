@@ -3,6 +3,8 @@ const path = require('path');
 const ApiError = require('../utils/ApiError');
 const { success } = require('../utils/response');
 const User = require('../models/User');
+const biometric = require('../services/biometric.service');
+const logger = require('../utils/logger');
 
 const normalizeOffDays = (raw) => {
   if (raw === undefined || raw === null || raw === '') return undefined;
@@ -33,6 +35,7 @@ exports.list = asyncHandler(async (req, res) => {
     User.find(filter)
       .populate('department', 'name code')
       .populate('shift', 'name startTime endTime')
+      .populate('deviceId', 'name ip port serialNumber')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit),
@@ -44,7 +47,8 @@ exports.list = asyncHandler(async (req, res) => {
 exports.getOne = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id)
     .populate('department', 'name code')
-    .populate('shift', 'name startTime endTime');
+    .populate('shift', 'name startTime endTime')
+    .populate('deviceId', 'name ip port serialNumber connectionStatus');
   if (!user) throw new ApiError(404, 'Employee not found');
   return success(res, user.toSafeJSON(), 'Employee');
 });
@@ -55,8 +59,34 @@ exports.create = asyncHandler(async (req, res) => {
   if (offDays !== undefined) body.weeklyOffDays = offDays;
   if (req.file) body.profilePicture = `/uploads/profile/${req.file.filename}`;
   if (!body.password) body.password = 'Welcome@123';
+
+  // 1) Persist employee first. Device sync is best-effort and MUST NOT roll this back.
   const user = await User.create(body);
-  return success(res, user.toSafeJSON(), 'Employee created', 201);
+
+  // 2) Push to biometric device (never throw — swallow + record on the user).
+  let biometricResult = { ok: false, skipped: true };
+  try {
+    const device = await biometric.resolveDevice();
+    if (device) {
+      biometricResult = await biometric.syncEmployee(user, { device });
+    } else {
+      biometricResult = { ok: false, error: 'No biometric device configured' };
+    }
+  } catch (err) {
+    logger.error(`[employee.create] biometric sync error: ${err.message}`);
+    biometricResult = { ok: false, error: err.message };
+  }
+
+  // 3) Return the freshest copy of the user (sync mutates fields).
+  const fresh = await User.findById(user._id);
+  return success(
+    res,
+    { employee: fresh.toSafeJSON(), biometric: biometricResult },
+    biometricResult.ok
+      ? 'Employee created and synchronized to device'
+      : 'Employee created; device synchronization failed',
+    201
+  );
 });
 
 exports.update = asyncHandler(async (req, res) => {
@@ -92,4 +122,52 @@ exports.resetEmployeePassword = asyncHandler(async (req, res) => {
   user.refreshTokens = [];
   await user.save();
   return success(res, {}, 'Password reset for employee');
+});
+
+// -------- Biometric endpoints -----------------------------------------------
+
+const requireEmployee = async (id) => {
+  const user = await User.findById(id);
+  if (!user) throw new ApiError(404, 'Employee not found');
+  return user;
+};
+
+/** POST /employees/:id/sync — push the employee to a device (primary by default). */
+exports.syncToDevice = asyncHandler(async (req, res) => {
+  const user = await requireEmployee(req.params.id);
+  const result = await biometric.syncEmployee(user, { deviceId: req.body?.deviceId });
+  const fresh = await User.findById(user._id);
+  if (!result.ok) throw new ApiError(502, result.error || 'Device sync failed', { biometric: result });
+  return success(res, { employee: fresh.toSafeJSON(), biometric: result }, 'Employee synchronized');
+});
+
+/** POST /employees/:id/delete-device — remove the employee from the device. */
+exports.deleteFromDevice = asyncHandler(async (req, res) => {
+  const user = await requireEmployee(req.params.id);
+  const result = await biometric.deleteEmployeeFromDevice(user);
+  if (!result.ok) throw new ApiError(502, result.error || 'Device delete failed');
+  const fresh = await User.findById(user._id);
+  return success(res, { employee: fresh.toSafeJSON() }, 'Employee removed from device');
+});
+
+/** POST /employees/:id/refresh-fingerprint — pull the latest enrolment state. */
+exports.refreshFingerprint = asyncHandler(async (req, res) => {
+  const user = await requireEmployee(req.params.id);
+  const result = await biometric.refreshFingerprintStatus(user);
+  if (!result.ok) throw new ApiError(502, result.error || 'Refresh failed');
+  return success(res, { employee: result.employee.toSafeJSON(), fingerCount: result.fingerCount }, 'Fingerprint status refreshed');
+});
+
+/** POST /employees/:id/enable-device — enable the record on the device. */
+exports.enableOnDevice = asyncHandler(async (req, res) => {
+  const user = await requireEmployee(req.params.id);
+  const updated = await biometric.setEmployeeEnabled(user, true);
+  return success(res, { employee: updated.toSafeJSON() }, 'User enabled on device');
+});
+
+/** POST /employees/:id/disable-device — disable the record on the device. */
+exports.disableOnDevice = asyncHandler(async (req, res) => {
+  const user = await requireEmployee(req.params.id);
+  const updated = await biometric.setEmployeeEnabled(user, false);
+  return success(res, { employee: updated.toSafeJSON() }, 'User disabled on device');
 });

@@ -1,5 +1,10 @@
 const mongoose = require('mongoose');
-const { ATTENDANCE_STATUS, ATTENDANCE_METHOD } = require('../config/constants');
+const {
+  ATTENDANCE_STATUS,
+  ATTENDANCE_METHOD,
+  CHECK_TYPE,
+  VERIFICATION_MODE,
+} = require('../config/constants');
 
 const attendanceSchema = new mongoose.Schema(
   {
@@ -18,6 +23,15 @@ const attendanceSchema = new mongoose.Schema(
     lateMinutes: { type: Number, default: 0 },
     note: String,
     adjustedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
+    // -------- Biometric device metadata (populated when method=FINGERPRINT) --------
+    device: { type: mongoose.Schema.Types.ObjectId, ref: 'Device', index: true },
+    deviceUserId: { type: String, trim: true },
+    terminal: { type: String, trim: true }, // human name/serial of terminal that captured the punch
+    // Raw device timestamp for the individual punch that produced this row
+    devicePunchAt: { type: Date },
+    checkType: { type: String, enum: Object.values(CHECK_TYPE) },
+    verificationMode: { type: String, enum: Object.values(VERIFICATION_MODE) },
   },
   { timestamps: true }
 );

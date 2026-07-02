@@ -12,6 +12,7 @@ const PERMISSION_MODULES = {
   targets: 'Tasks',
   commissions: 'Commissions',
   reports: 'Reports',
+  devices: 'Biometric Devices',
 };
 
 const DEFAULT_ROLE_PERMISSIONS = {
@@ -25,6 +26,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     targets: 'none',
     commissions: 'none',
     reports: 'none',
+    devices: 'read',
   },
   [ROLES.TEAM_LEADER]: {
     departments: 'none',
@@ -36,6 +38,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     targets: 'manage',
     commissions: 'none',
     reports: 'none',
+    devices: 'none',
   },
 };
 
