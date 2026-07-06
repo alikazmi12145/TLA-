@@ -33,6 +33,8 @@ export default function EmployeesPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['employees', page, filters],
     queryFn: () => employeeService.list({ page, limit: 10, ...filters }),
+    refetchInterval: 15000,          // live-update fingerprint / sync status
+    refetchOnWindowFocus: true,
   });
 
   const onDelete = async () => {

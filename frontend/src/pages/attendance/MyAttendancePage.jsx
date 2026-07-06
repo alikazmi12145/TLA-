@@ -27,7 +27,7 @@ export default function MyAttendancePage() {
           <Box sx={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left' }}>
-                {['Date', 'Status', 'In', 'Out', 'Break', 'Lunch', 'Hours'].map((h) => (
+                {['Date', 'Status', 'In', 'Out', 'Hours'].map((h) => (
                   <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>
                 ))}
               </tr></thead>
@@ -38,8 +38,6 @@ export default function MyAttendancePage() {
                     <td style={{ padding: '10px 8px' }}><Chip size="small" label={a.status} color={statusColor[a.status]} /></td>
                     <td style={{ padding: '10px 8px' }}>{a.clockIn ? dayjs(a.clockIn).format('HH:mm') : '—'}</td>
                     <td style={{ padding: '10px 8px' }}>{a.clockOut ? dayjs(a.clockOut).format('HH:mm') : '—'}</td>
-                    <td style={{ padding: '10px 8px' }}>{a.breakStart ? dayjs(a.breakStart).format('HH:mm') : '—'} → {a.breakEnd ? dayjs(a.breakEnd).format('HH:mm') : '—'}</td>
-                    <td style={{ padding: '10px 8px' }}>{a.lunchStart ? dayjs(a.lunchStart).format('HH:mm') : '—'} → {a.lunchEnd ? dayjs(a.lunchEnd).format('HH:mm') : '—'}</td>
                     <td style={{ padding: '10px 8px' }}>{minutesToHours(a.workMinutes)}</td>
                   </tr>
                 ))}

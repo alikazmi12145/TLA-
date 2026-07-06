@@ -30,10 +30,7 @@ const notifyAdmins = async ({ type, title, message, meta }) => {
 
 const computeWorkMinutes = (a) => {
   if (!a.clockIn || !a.clockOut) return 0;
-  let mins = diffMinutes(a.clockIn, a.clockOut);
-  if (a.breakStart && a.breakEnd) mins -= diffMinutes(a.breakStart, a.breakEnd);
-  if (a.lunchStart && a.lunchEnd) mins -= diffMinutes(a.lunchStart, a.lunchEnd);
-  return Math.max(0, mins);
+  return Math.max(0, diffMinutes(a.clockIn, a.clockOut));
 };
 
 const evaluateLate = async (employeeId, clockIn) => {
@@ -45,15 +42,30 @@ const evaluateLate = async (employeeId, clockIn) => {
   return { isLate: lateMinutes > 0, lateMinutes };
 };
 
-const getOrCreateToday = async (employeeId, method = ATTENDANCE_METHOD.LOGIN) => {
+// Gate: the employee must have physically punched in on the biometric device
+// before the app Clock In button is allowed. Returns today's Attendance row.
+const requireDeviceCheckInToday = async (employeeId) => {
   const date = startOfDay();
-  let doc = await Attendance.findOne({ employee: employeeId, date });
-  if (!doc) doc = await Attendance.create({ employee: employeeId, date, method, status: ATTENDANCE_STATUS.PRESENT });
+  const doc = await Attendance.findOne({ employee: employeeId, date });
+  if (!doc || !doc.deviceCheckInAt) {
+    throw new ApiError(403, 'Verify finger from device first');
+  }
+  return doc;
+};
+
+// Gate: the employee must have physically punched out on the biometric device
+// before the app Clock Out button is allowed.
+const requireDeviceCheckOutToday = async (employeeId) => {
+  const date = startOfDay();
+  const doc = await Attendance.findOne({ employee: employeeId, date });
+  if (!doc || !doc.deviceCheckOutAt) {
+    throw new ApiError(403, 'Punch out on device first');
+  }
   return doc;
 };
 
 exports.clockIn = asyncHandler(async (req, res) => {
-  const doc = await getOrCreateToday(req.user._id);
+  const doc = await requireDeviceCheckInToday(req.user._id);
   if (doc.clockIn) throw new ApiError(400, 'Already clocked in today');
   doc.clockIn = new Date();
   const { isLate, lateMinutes } = await evaluateLate(req.user._id, doc.clockIn);
@@ -76,7 +88,7 @@ exports.clockIn = asyncHandler(async (req, res) => {
 });
 
 exports.clockOut = asyncHandler(async (req, res) => {
-  const doc = await getOrCreateToday(req.user._id);
+  const doc = await requireDeviceCheckOutToday(req.user._id);
   if (!doc.clockIn) throw new ApiError(400, 'Clock-in required first');
   if (doc.clockOut) throw new ApiError(400, 'Already clocked out');
   doc.clockOut = new Date();
@@ -98,20 +110,6 @@ exports.clockOut = asyncHandler(async (req, res) => {
 
   return success(res, doc, 'Clocked out');
 });
-
-const punchHandler = (field) =>
-  asyncHandler(async (req, res) => {
-    const doc = await getOrCreateToday(req.user._id);
-    if (doc[field]) throw new ApiError(400, `${field} already set`);
-    doc[field] = new Date();
-    await doc.save();
-    return success(res, doc, `${field} recorded`);
-  });
-
-exports.breakStart = punchHandler('breakStart');
-exports.breakEnd = punchHandler('breakEnd');
-exports.lunchStart = punchHandler('lunchStart');
-exports.lunchEnd = punchHandler('lunchEnd');
 
 exports.today = asyncHandler(async (req, res) => {
   const date = startOfDay();

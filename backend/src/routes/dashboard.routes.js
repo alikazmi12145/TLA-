@@ -11,5 +11,6 @@ router.get('/admin', adminOrHR, ctrl.adminSummary);
 router.get('/employee', ctrl.employeeSummary);
 router.get('/recent-activity', adminOrHR, ctrl.recentActivity);
 router.get('/department-performance', adminOrHR, ctrl.departmentPerformance);
+router.get('/enrollment', adminOrHR, ctrl.enrollmentSummary);
 
 module.exports = router;

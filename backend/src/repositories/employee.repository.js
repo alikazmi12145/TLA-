@@ -29,7 +29,7 @@ const nextFreeDeviceUserId = async (deviceId) => {
 
 const listSyncable = (filter = {}) =>
   User.find({ isActive: true, ...filter }).select(
-    'employeeId fullName deviceId deviceUserId devicePrivilege syncStatus deviceSynced fingerprintStatus'
+    'employeeId fullName deviceId deviceUserId devicePrivilege syncStatus deviceSynced fingerprintStatus fingerBaseline fingerCount lastSync createdAt'
   );
 
 const setSyncSuccess = (userId, patch) =>

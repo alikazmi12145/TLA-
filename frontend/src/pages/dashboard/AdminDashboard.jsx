@@ -18,6 +18,8 @@ import {
 import StatCard from '../../components/common/StatCard';
 import PageHeader from '../../components/common/PageHeader';
 import { Empty, Loading } from '../../components/common/States';
+import AnnouncementsCard from '../../components/common/AnnouncementsCard';
+import EnrollmentCard from '../../components/biometric/EnrollmentCard';
 import { dashboardService, attendanceService, payrollService, leaveService, holidayService } from '../../services';
 import { formatCurrency } from '../../lib/format';
 
@@ -87,6 +89,10 @@ export default function AdminDashboard() {
       />
 
       <Grid container spacing={2}>
+        <Grid item xs={12}>
+          <AnnouncementsCard limit={5} />
+        </Grid>
+
         {[
           { t: 'Total Employees', v: s.totalEmployees ?? '-', i: <PeopleIcon />, c: 'primary' },
           { t: 'Present Today', v: s.presentToday ?? '-', i: <EventAvailableIcon />, c: 'success' },
@@ -145,6 +151,10 @@ export default function AdminDashboard() {
               ) : <Empty title="No leave data yet" />}
             </Box>
           </CardContent></Card>
+        </Grid>
+
+        <Grid item xs={12}>
+          <EnrollmentCard />
         </Grid>
 
         <Grid item xs={12} md={6}>

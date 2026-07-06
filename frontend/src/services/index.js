@@ -15,6 +15,7 @@ export const dashboardService = {
   employee: () => api.get('/dashboard/employee').then((r) => r.data),
   recent: () => api.get('/dashboard/recent-activity').then((r) => r.data),
   deptPerformance: () => api.get('/dashboard/department-performance').then((r) => r.data),
+  enrollment: () => api.get('/dashboard/enrollment').then((r) => r.data),
 };
 
 export const employeeService = {
@@ -28,6 +29,7 @@ export const employeeService = {
   syncToDevice: (id, deviceId) => api.post(`/employees/${id}/sync`, { deviceId }).then((r) => r.data),
   deleteFromDevice: (id) => api.post(`/employees/${id}/delete-device`).then((r) => r.data),
   refreshFingerprint: (id) => api.post(`/employees/${id}/refresh-fingerprint`).then((r) => r.data),
+  enrollmentStatus: (id) => api.get(`/employees/${id}/enrollment-status`).then((r) => r.data),
   enableOnDevice: (id) => api.post(`/employees/${id}/enable-device`).then((r) => r.data),
   disableOnDevice: (id) => api.post(`/employees/${id}/disable-device`).then((r) => r.data),
 };
@@ -80,10 +82,6 @@ export const attendanceService = {
   trend: (days = 30) => api.get('/attendance/summary/trend', { params: { days } }).then((r) => r.data),
   clockIn: (note) => api.post('/attendance/clock-in', { note }).then((r) => r.data),
   clockOut: (note) => api.post('/attendance/clock-out', { note }).then((r) => r.data),
-  breakStart: () => api.post('/attendance/break/start').then((r) => r.data),
-  breakEnd: () => api.post('/attendance/break/end').then((r) => r.data),
-  lunchStart: () => api.post('/attendance/lunch/start').then((r) => r.data),
-  lunchEnd: () => api.post('/attendance/lunch/end').then((r) => r.data),
   adjust: (data) => api.post('/attendance/adjust', data).then((r) => r.data),
 };
 
@@ -134,6 +132,17 @@ export const notificationService = {
   markRead: (id) => api.patch(`/notifications/${id}/read`).then((r) => r.data),
   markAllRead: () => api.patch('/notifications/read-all').then((r) => r.data),
   remove: (id) => api.delete(`/notifications/${id}`).then((r) => r.data),
+};
+
+export const announcementService = {
+  feed: (limit) => api.get('/announcements/feed', { params: limit ? { limit } : {} }).then((r) => r.data),
+  list: (params) => api.get('/announcements', { params }).then((r) => r.data),
+  get: (id) => api.get(`/announcements/${id}`).then((r) => r.data),
+  create: (data) => api.post('/announcements', data).then((r) => r.data),
+  update: (id, data) => api.put(`/announcements/${id}`, data).then((r) => r.data),
+  remove: (id) => api.delete(`/announcements/${id}`).then((r) => r.data),
+  togglePin: (id) => api.patch(`/announcements/${id}/pin`).then((r) => r.data),
+  toggleActive: (id) => api.patch(`/announcements/${id}/active`).then((r) => r.data),
 };
 
 export const settingService = {

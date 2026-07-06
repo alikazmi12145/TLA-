@@ -42,6 +42,8 @@ import MyPayrollPage from './pages/payroll/MyPayrollPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import SettingsPage from './pages/settings/SettingsPage';
 import NotificationsPage from './pages/notifications/NotificationsPage';
+import AnnouncementsPage from './pages/announcements/AnnouncementsPage';
+import MyAnnouncementsPage from './pages/announcements/MyAnnouncementsPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -120,6 +122,11 @@ export default function App() {
             <Route path="/reports" element={<ReportsPage />} />
           </Route>
 
+          {/* Announcements — SUPER_ADMIN + HR manage; everyone sees the feed on the dashboard */}
+          <Route element={<RoleRoute allow={[ROLES.SUPER_ADMIN, ROLES.HR_MANAGER]} />}>
+            <Route path="/announcements" element={<AnnouncementsPage />} />
+          </Route>
+
           <Route element={<RoleRoute allow={Object.values(ROLES)} module="attendance" />}>
             <Route path="/attendance" element={<AttendancePage />} />
           </Route>
@@ -145,6 +152,7 @@ export default function App() {
           <Route path="/my/leaves" element={<MyLeavesPage />} />
           <Route path="/my/targets" element={<MyTargetsPage />} />
           <Route path="/my/payroll" element={<MyPayrollPage />} />
+          <Route path="/my/announcements" element={<MyAnnouncementsPage />} />
         </Route>
       </Route>
 

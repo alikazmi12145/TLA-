@@ -25,6 +25,7 @@ router.post('/:id/reset-password', adminOnly, ctrl.resetEmployeePassword);
 router.post('/:id/sync', adminOnly, ctrl.syncToDevice);
 router.post('/:id/delete-device', adminOnly, ctrl.deleteFromDevice);
 router.post('/:id/refresh-fingerprint', adminOnly, ctrl.refreshFingerprint);
+router.get('/:id/enrollment-status', adminHrOrLead, ctrl.enrollmentStatus);
 router.post('/:id/enable-device', adminOnly, ctrl.enableOnDevice);
 router.post('/:id/disable-device', adminOnly, ctrl.disableOnDevice);
 

@@ -112,9 +112,10 @@ export default function EmployeeFormPage() {
         timers.forEach(clearTimeout);
       }
       const biometric = res?.data?.biometric || { ok: false };
-      setStepper({ open: true, step: 4, error: null, result: { biometric } });
+      const employee = res?.data?.employee || null;
+      setStepper({ open: true, step: 4, error: null, result: { biometric, employee } });
       if (biometric.ok) {
-        toast.success('Employee created successfully. User synchronized to device. Please enroll fingerprint on the biometric device.');
+        toast.success('Employee synced to device. Please enroll fingerprint on the biometric device.');
       } else {
         toast.warn('Employee created. Device synchronization failed.');
       }

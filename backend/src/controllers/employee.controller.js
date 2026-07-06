@@ -158,6 +158,51 @@ exports.refreshFingerprint = asyncHandler(async (req, res) => {
   return success(res, { employee: result.employee.toSafeJSON(), fingerCount: result.fingerCount }, 'Fingerprint status refreshed');
 });
 
+/**
+ * GET /employees/:id/enrollment-status — poll-friendly enrolment probe.
+ * Used by the create-employee wizard to wait for the admin to physically
+ * punch the finger on the device. Never throws on device errors — the UI
+ * needs a stable shape to keep polling until the finger is enrolled.
+ */
+exports.enrollmentStatus = asyncHandler(async (req, res) => {
+  const user = await requireEmployee(req.params.id);
+  const base = {
+    employeeId: user._id,
+    deviceUserId: user.deviceUserId || null,
+    deviceSynced: !!user.deviceSynced,
+    fingerprintStatus: user.fingerprintStatus,
+    fingerCount: user.fingerCount || 0,
+    enrolled: user.fingerprintStatus === 'ENROLLED',
+    error: null,
+  };
+  if (!user.deviceSynced || !user.deviceId || !user.deviceUserId) {
+    return success(res, base, 'Enrollment status');
+  }
+  try {
+    const result = await biometric.refreshFingerprintStatus(user);
+    if (!result.ok) {
+      return success(res, { ...base, error: result.error }, 'Enrollment status');
+    }
+    const fresh = result.employee;
+    return success(
+      res,
+      {
+        employeeId: fresh._id,
+        deviceUserId: fresh.deviceUserId || null,
+        deviceSynced: !!fresh.deviceSynced,
+        fingerprintStatus: fresh.fingerprintStatus,
+        fingerCount: fresh.fingerCount || 0,
+        enrolled: fresh.fingerprintStatus === 'ENROLLED',
+        error: null,
+      },
+      'Enrollment status'
+    );
+  } catch (err) {
+    logger.warn(`[employee.enrollmentStatus] ${err.message}`);
+    return success(res, { ...base, error: err.message }, 'Enrollment status');
+  }
+});
+
 /** POST /employees/:id/enable-device — enable the record on the device. */
 exports.enableOnDevice = asyncHandler(async (req, res) => {
   const user = await requireEmployee(req.params.id);

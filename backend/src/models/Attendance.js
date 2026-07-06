@@ -13,10 +13,6 @@ const attendanceSchema = new mongoose.Schema(
     method: { type: String, enum: Object.values(ATTENDANCE_METHOD), default: ATTENDANCE_METHOD.LOGIN },
     clockIn: Date,
     clockOut: Date,
-    breakStart: Date,
-    breakEnd: Date,
-    lunchStart: Date,
-    lunchEnd: Date,
     workMinutes: { type: Number, default: 0 },
     status: { type: String, enum: Object.values(ATTENDANCE_STATUS), default: ATTENDANCE_STATUS.PRESENT },
     isLate: { type: Boolean, default: false },
@@ -30,6 +26,11 @@ const attendanceSchema = new mongoose.Schema(
     terminal: { type: String, trim: true }, // human name/serial of terminal that captured the punch
     // Raw device timestamp for the individual punch that produced this row
     devicePunchAt: { type: Date },
+    // First and last physical device punches of the day. These are gates for
+    // the app Clock In / Clock Out buttons but do NOT themselves start the
+    // work-hours timer — the app buttons still set clockIn/clockOut.
+    deviceCheckInAt: { type: Date },
+    deviceCheckOutAt: { type: Date },
     checkType: { type: String, enum: Object.values(CHECK_TYPE) },
     verificationMode: { type: String, enum: Object.values(VERIFICATION_MODE) },
   },

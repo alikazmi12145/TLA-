@@ -9,7 +9,7 @@ const Holiday = require('../models/Holiday');
 const Department = require('../models/Department');
 const Payroll = require('../models/Payroll');
 const Commission = require('../models/Commission');
-const { ROLES, ATTENDANCE_STATUS } = require('../config/constants');
+const { ROLES, ATTENDANCE_STATUS, FINGERPRINT_STATUS, SYNC_STATUS } = require('../config/constants');
 
 exports.adminSummary = asyncHandler(async (_req, res) => {
   const today = startOfDay();
@@ -135,4 +135,62 @@ exports.departmentPerformance = asyncHandler(async (_req, res) => {
     { $sort: { employees: -1 } },
   ]);
   return success(res, items, 'Department performance');
+});
+
+/**
+ * GET /dashboard/enrollment — fingerprint enrollment snapshot for the admin.
+ * Returns counts + a short list of employees still awaiting enrollment on
+ * the device (deviceSynced but fingerprintStatus != ENROLLED).
+ */
+exports.enrollmentSummary = asyncHandler(async (_req, res) => {
+  const activeFilter = { isActive: true, role: { $ne: ROLES.SUPER_ADMIN } };
+  const [
+    totalEmployees,
+    enrolled,
+    pendingEnrollment,
+    notSynced,
+    syncFailed,
+    pendingList,
+  ] = await Promise.all([
+    User.countDocuments(activeFilter),
+    User.countDocuments({ ...activeFilter, fingerprintStatus: FINGERPRINT_STATUS.ENROLLED }),
+    User.countDocuments({
+      ...activeFilter,
+      deviceSynced: true,
+      fingerprintStatus: { $ne: FINGERPRINT_STATUS.ENROLLED },
+    }),
+    User.countDocuments({
+      ...activeFilter,
+      $or: [{ deviceSynced: { $ne: true } }, { deviceId: null }, { deviceId: { $exists: false } }],
+    }),
+    User.countDocuments({ ...activeFilter, syncStatus: SYNC_STATUS.FAILED }),
+    User.find({
+      ...activeFilter,
+      deviceSynced: true,
+      fingerprintStatus: { $ne: FINGERPRINT_STATUS.ENROLLED },
+    })
+      .select('fullName employeeId deviceUserId fingerprintStatus syncStatus deviceId createdAt')
+      .populate('deviceId', 'name ip')
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean(),
+  ]);
+
+  return success(res, {
+    totalEmployees,
+    enrolled,
+    pendingEnrollment,
+    notSynced,
+    syncFailed,
+    pending: pendingList.map((e) => ({
+      _id: e._id,
+      fullName: e.fullName,
+      employeeId: e.employeeId,
+      deviceUserId: e.deviceUserId,
+      fingerprintStatus: e.fingerprintStatus,
+      syncStatus: e.syncStatus,
+      device: e.deviceId ? { _id: e.deviceId._id, name: e.deviceId.name, ip: e.deviceId.ip } : null,
+      createdAt: e.createdAt,
+    })),
+  }, 'Enrollment summary');
 });

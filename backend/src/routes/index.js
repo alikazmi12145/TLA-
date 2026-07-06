@@ -12,6 +12,7 @@ router.use('/targets', require('./target.routes'));
 router.use('/commissions', require('./commission.routes'));
 router.use('/payroll', require('./payroll.routes'));
 router.use('/notifications', require('./notification.routes'));
+router.use('/announcements', require('./announcement.routes'));
 router.use('/settings', require('./setting.routes'));
 router.use('/dashboard', require('./dashboard.routes'));
 router.use('/reports', require('./report.routes'));

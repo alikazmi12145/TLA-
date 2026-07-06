@@ -11,10 +11,6 @@ const writers = authorizeModule('attendance', 'manage');
 // Self
 router.post('/clock-in', ctrl.clockIn);
 router.post('/clock-out', ctrl.clockOut);
-router.post('/break/start', ctrl.breakStart);
-router.post('/break/end', ctrl.breakEnd);
-router.post('/lunch/start', ctrl.lunchStart);
-router.post('/lunch/end', ctrl.lunchEnd);
 router.get('/today', ctrl.today);
 router.get('/me/month', ctrl.myMonth);
 

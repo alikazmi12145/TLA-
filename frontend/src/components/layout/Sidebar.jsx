@@ -15,6 +15,7 @@ import GroupWorkIcon from '@mui/icons-material/GroupWork';
 import LoginIcon from '@mui/icons-material/Login';
 import LogoutIcon from '@mui/icons-material/Logout';
 import FingerprintIcon from '@mui/icons-material/Fingerprint';
+import CampaignIcon from '@mui/icons-material/Campaign';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import { NavLink } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -80,6 +81,8 @@ const sections = [
   {
     title: 'System',
     items: [
+      { to: '/announcements', label: 'Announcements', icon: <CampaignIcon />, allow: ['SUPER_ADMIN', 'HR_MANAGER'] },
+      { to: '/my/announcements', label: 'My Announcements', icon: <CampaignIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
       { to: '/devices', label: 'Biometric Devices', icon: <FingerprintIcon />, module: 'devices', allow: Object.values(ROLES) },
       { to: '/settings', label: 'Settings', icon: <SettingsIcon />, allow: ['SUPER_ADMIN'] },
     ],
@@ -101,6 +104,8 @@ export default function Sidebar({ onNavigate }) {
   const today = todayData?.data || null;
   const isClockedIn = !!today?.clockIn && !today?.clockOut;
   const isClockedOut = !!today?.clockIn && !!today?.clockOut;
+  const canClockIn = !!today?.deviceCheckInAt && !today?.clockIn;
+  const canClockOut = !!today?.deviceCheckOutAt && !!today?.clockIn && !today?.clockOut;
 
   const invalidateAttendance = () => {
     qc.invalidateQueries({ queryKey: ['attendance-today'] });
@@ -242,7 +247,7 @@ export default function Sidebar({ onNavigate }) {
               color="success"
               size="small"
               startIcon={<LoginIcon />}
-              disabled={isClockedIn || isClockedOut || clockInMut.isPending}
+              disabled={!canClockIn || clockInMut.isPending}
               onClick={() => openNoteDialog('in')}
               sx={{ fontWeight: 700, textTransform: 'none' }}
             >
@@ -254,7 +259,7 @@ export default function Sidebar({ onNavigate }) {
               color="error"
               size="small"
               startIcon={<LogoutIcon />}
-              disabled={!isClockedIn || clockOutMut.isPending}
+              disabled={!canClockOut || clockOutMut.isPending}
               onClick={() => openNoteDialog('out')}
               sx={{ fontWeight: 700, textTransform: 'none' }}
             >
@@ -263,13 +268,13 @@ export default function Sidebar({ onNavigate }) {
           </Stack>
         ) : (
           <Stack spacing={1} alignItems="center">
-            <Tooltip title={isClockedIn || isClockedOut ? 'Already clocked in' : 'Clock In'} placement="right">
+            <Tooltip title={!canClockIn ? (isClockedIn || isClockedOut ? 'Already clocked in' : 'Punch finger on device first') : 'Clock In'} placement="right">
               <span>
                 <Button
                   variant="contained"
                   color="success"
                   size="small"
-                  disabled={isClockedIn || isClockedOut || clockInMut.isPending}
+                  disabled={!canClockIn || clockInMut.isPending}
                   onClick={() => openNoteDialog('in')}
                   sx={{ minWidth: 0, p: 1, borderRadius: 2 }}
                 >
@@ -277,13 +282,13 @@ export default function Sidebar({ onNavigate }) {
                 </Button>
               </span>
             </Tooltip>
-            <Tooltip title={!isClockedIn ? 'Clock in first' : 'Clock Out'} placement="right">
+            <Tooltip title={!canClockOut ? (isClockedOut ? 'Already clocked out' : !isClockedIn ? 'Clock in first' : 'Punch out on device first') : 'Clock Out'} placement="right">
               <span>
                 <Button
                   variant="contained"
                   color="error"
                   size="small"
-                  disabled={!isClockedIn || clockOutMut.isPending}
+                  disabled={!canClockOut || clockOutMut.isPending}
                   onClick={() => openNoteDialog('out')}
                   sx={{ minWidth: 0, p: 1, borderRadius: 2 }}
                 >

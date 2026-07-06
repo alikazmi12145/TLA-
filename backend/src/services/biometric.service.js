@@ -14,6 +14,7 @@ const employeeRepo = require('../repositories/employee.repository');
 const attendanceRepo = require('../repositories/attendance.repository');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const DevicePunch = require('../models/DevicePunch');
 const logger = require('../utils/logger');
 const {
   SYNC_STATUS,
@@ -195,8 +196,17 @@ const syncEmployee = async (employee, opts = {}) => {
 
   try {
     let deviceUserId = employee.deviceUserId;
-    if (!deviceUserId || String(employee.deviceId) !== String(device._id)) {
+    // Assign a fresh UID when this employee is being bound to a device for
+    // the first time, or is being rebound to a different device.
+    const isFreshBinding =
+      !deviceUserId || String(employee.deviceId) !== String(device._id);
+    if (isFreshBinding) {
       deviceUserId = await employeeRepo.nextFreeDeviceUserId(device._id);
+      // Best-effort: purge any stale user record already sitting under this
+      // UID on the device (previous holder, ghost row, etc.) — otherwise
+      // residual finger templates would auto-mark the new employee as
+      // enrolled without them ever touching the sensor.
+      try { await zk.deleteUser(device, deviceUserId); } catch { /* not present */ }
     }
 
     const privilege = Number.isFinite(employee.devicePrivilege)
@@ -216,13 +226,37 @@ const syncEmployee = async (employee, opts = {}) => {
       password: '',
     });
 
+    // Capture a fingerprint baseline via getUsers().fingerCount (the reliable
+    // per-user field). Any templates still present under this UID after
+    // createUser are considered "residual" — they belong to a previous
+    // holder that the device firmware didn't purge. The employee will only
+    // be marked ENROLLED once the count rises ABOVE this baseline.
+    let fingerBaseline = 0;
+    if (isFreshBinding) {
+      try {
+        const users = await zk.getUsers(device);
+        const self = users.find(
+          (u) => String(u.userId) === String(deviceUserId) || String(u.uid) === String(deviceUserId)
+        );
+        fingerBaseline = Number(self?.fingerCount) || 0;
+      } catch { fingerBaseline = 0; }
+    } else {
+      fingerBaseline = Number(employee.fingerBaseline) || 0;
+    }
+
     const updated = await employeeRepo.setSyncSuccess(employee._id, {
       deviceId: device._id,
       deviceUserId,
-      fingerprintStatus:
-        employee.fingerprintStatus === FINGERPRINT_STATUS.ENROLLED
+      // A fresh binding always starts unenrolled — the admin must physically
+      // enrol the finger on the K40 and then click Refresh Fingerprints for
+      // the status to flip to ENROLLED.
+      fingerprintStatus: isFreshBinding
+        ? FINGERPRINT_STATUS.NOT_ENROLLED
+        : employee.fingerprintStatus === FINGERPRINT_STATUS.ENROLLED
           ? FINGERPRINT_STATUS.ENROLLED
           : FINGERPRINT_STATUS.NOT_ENROLLED,
+      fingerBaseline,
+      fingerCount: 0,
       devicePrivilege: privilege,
       deviceUserEnabled: true,
     });
@@ -323,12 +357,26 @@ const refreshFingerprintStatus = async (employee) => {
     await employeeRepo.setSyncFailure(employee._id, 'User not present on device');
     return { ok: false, error: 'User not present on device' };
   }
-  // getUsers() from node-zklib does NOT include the template count, so probe
-  // per-finger via CMD_USERTEMP_RRQ to get the real enrolment count.
-  const count = await zk.getUserFingerCount(device, row.uid ?? employee.deviceUserId);
-  const status = count > 0 ? FINGERPRINT_STATUS.ENROLLED : FINGERPRINT_STATUS.NOT_ENROLLED;
-  const updated = await employeeRepo.setFingerprintStatus(employee._id, status, count);
-  return { ok: true, employee: updated, fingerCount: count };
+  // Use the reliable per-user fingerCount from getUsers() — the low-level
+  // USERTEMP_RRQ probe is broken on some K40 firmwares (returns 10 for every
+  // slot regardless of reality).
+  const rawCount = Number(row.fingerCount) || 0;
+  const baseline = Number(employee.fingerBaseline) || 0;
+  const newFingers = Math.max(0, rawCount - baseline);
+  // Fallback proof: some K40 firmwares don't expose fingerCount at all
+  // (always 0). A successful device punch is definitive proof the finger is
+  // enrolled — the K40 only records punches AFTER verifying against a template.
+  const cutoff = employee.createdAt;
+  const punchExists = await DevicePunch.exists({
+    employee: employee._id,
+    matched: true,
+    ...(cutoff ? { punchAt: { $gte: new Date(cutoff) } } : {}),
+  });
+  const status = (newFingers > 0 || punchExists)
+    ? FINGERPRINT_STATUS.ENROLLED
+    : FINGERPRINT_STATUS.NOT_ENROLLED;
+  const updated = await employeeRepo.setFingerprintStatus(employee._id, status, Math.max(newFingers, punchExists ? 1 : 0));
+  return { ok: true, employee: updated, fingerCount: newFingers, rawCount, baseline, punchProof: !!punchExists };
 };
 
 /** Refresh fingerprint status for every synced employee on a device. */
@@ -345,12 +393,28 @@ const refreshAllFingerprintStatuses = async (deviceId, { onlyNotEnrolled = false
   for (const emp of employees) {
     const row = byId.get(String(emp.deviceUserId));
     if (!row) continue;
+    // Trust getUsers().fingerCount — the K40 firmware's per-slot probe is
+    // unreliable (returns 10 for every user regardless of reality).
+    const rawCount = Number(row.fingerCount) || 0;
+    const baseline = Number(emp.fingerBaseline) || 0;
+    const newFingers = Math.max(0, rawCount - baseline);
+    // Fallback proof: a successful device punch means the K40 verified this
+    // employee's finger, which is definitive proof of enrolment even when
+    // fingerCount is stuck at 0 on this firmware.
+    const cutoff = emp.createdAt;
     // eslint-disable-next-line no-await-in-loop
-    const count = await zk.getUserFingerCount(device, row.uid ?? emp.deviceUserId);
-    const status = count > 0 ? FINGERPRINT_STATUS.ENROLLED : FINGERPRINT_STATUS.NOT_ENROLLED;
-    if (emp.fingerprintStatus !== status || emp.fingerCount !== count) {
+    const punchExists = await DevicePunch.exists({
+      employee: emp._id,
+      matched: true,
+      ...(cutoff ? { punchAt: { $gte: new Date(cutoff) } } : {}),
+    });
+    const status = (newFingers > 0 || punchExists)
+      ? FINGERPRINT_STATUS.ENROLLED
+      : FINGERPRINT_STATUS.NOT_ENROLLED;
+    const displayCount = Math.max(newFingers, punchExists ? 1 : 0);
+    if (emp.fingerprintStatus !== status || emp.fingerCount !== displayCount) {
       // eslint-disable-next-line no-await-in-loop
-      await employeeRepo.setFingerprintStatus(emp._id, status, count);
+      await employeeRepo.setFingerprintStatus(emp._id, status, displayCount);
       updated += 1;
     }
   }
@@ -397,7 +461,53 @@ const importAttendance = async (deviceId, { clearAfter = false } = {}) => {
       // device stores userId="-0011" but HRMS stored deviceUserId="2".
       emp = await employeeRepo.findByDeviceUserId(device._id, userIdToUid.get(raw));
     }
-    if (!emp) { skipped += 1; continue; }
+    if (!emp) { skipped += 1; }
+    // Persist the raw punch regardless of match — audit trail of every tap.
+    try {
+      await DevicePunch.updateOne(
+        { device: device._id, deviceUserId: raw, punchAt: new Date(p.timestamp) },
+        {
+          $setOnInsert: {
+            device: device._id,
+            deviceUserId: raw,
+            punchAt: new Date(p.timestamp),
+          },
+          $set: {
+            employee: emp ? emp._id : null,
+            checkType: p.checkType,
+            verificationMode: p.verificationMode,
+            terminal: device.name,
+            matched: !!emp,
+          },
+        },
+        { upsert: true }
+      );
+    } catch (err) {
+      logger.warn(`[biometric] DevicePunch log failed: ${err.message}`);
+    }
+    if (!emp) continue;
+
+    // Gate — ignore stale device history. Reject punches that happened
+    // BEFORE the employee record was created in HRMS. This kills old K40
+    // history under a recycled UID (previous holder) without depending on
+    // lastSync, which gets bumped by every re-sync / rebaseline operation.
+    const cutoff = emp.createdAt;
+    if (cutoff && new Date(p.timestamp) < new Date(cutoff)) {
+      skipped += 1;
+      continue;
+    }
+
+    // Auto-enrol on first successful fingerprint punch. The K40 only records
+    // a punch AFTER it has verified the finger against a stored template, so
+    // the punch itself is proof of enrolment. This is essential on firmwares
+    // where getUsers().fingerCount always reports 0 (node-zklib can't read
+    // the template count field they use).
+    if (emp.fingerprintStatus !== FINGERPRINT_STATUS.ENROLLED) {
+      await employeeRepo.setFingerprintStatus(emp._id, FINGERPRINT_STATUS.ENROLLED, 1);
+      emp.fingerprintStatus = FINGERPRINT_STATUS.ENROLLED;
+      logger.info(`[biometric] auto-enrolled ${emp.fullName} (${emp.employeeId}) on first verified punch.`);
+    }
+
     const { doc, event } = await attendanceRepo.upsertPunch({
       employeeId: emp._id,
       deviceId: device._id,

@@ -58,6 +58,11 @@ const userSchema = new mongoose.Schema(
     },
     // Number of finger templates registered on the device (0..10)
     fingerCount: { type: Number, default: 0 },
+    // Baseline template count observed on the device for this UID at sync time.
+    // An employee is only considered ENROLLED once fingerCount rises above this
+    // baseline — prevents residual templates from a previously deleted holder
+    // of the same UID from auto-marking a new employee as enrolled.
+    fingerBaseline: { type: Number, default: 0 },
     lastSync: { type: Date },
     lastAttendance: { type: Date },
     // Last error message when a sync operation failed

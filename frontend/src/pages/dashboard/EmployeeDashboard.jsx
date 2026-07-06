@@ -19,6 +19,7 @@ import {
 import StatCard from '../../components/common/StatCard';
 import PageHeader from '../../components/common/PageHeader';
 import { Empty } from '../../components/common/States';
+import AnnouncementsCard from '../../components/common/AnnouncementsCard';
 import { dashboardService, attendanceService, leaveService, payrollService, targetService } from '../../services';
 import { formatCurrency, minutesToHours } from '../../lib/format';
 
@@ -110,6 +111,10 @@ export default function EmployeeDashboard() {
       />
 
       <Grid container spacing={2}>
+        <Grid item xs={12}>
+          <AnnouncementsCard limit={5} />
+        </Grid>
+
         {[
           { t: 'Present Days', v: s.presentDays ?? '-', i: <EventAvailableIcon />, c: 'success' },
           { t: 'Absent Days', v: s.absentDays ?? '-', i: <EventBusyIcon />, c: 'error' },
@@ -134,10 +139,6 @@ export default function EmployeeDashboard() {
             <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
               {[
                 ['Clock In', t?.clockIn],
-                ['Break Start', t?.breakStart],
-                ['Break End', t?.breakEnd],
-                ['Lunch Start', t?.lunchStart],
-                ['Lunch End', t?.lunchEnd],
                 ['Clock Out', t?.clockOut],
               ].map(([k, v]) => (
                 <Chip key={k} label={`${k}: ${v ? dayjs(v).format('HH:mm') : '—'}`} variant="outlined" />
@@ -152,12 +153,8 @@ export default function EmployeeDashboard() {
             ) : null}
 
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Button onClick={() => action(attendanceService.clockIn, 'Clocked in')} variant="contained" color="success" disabled={!!t?.clockIn}>Clock in</Button>
-              <Button onClick={() => action(attendanceService.breakStart, 'Break started')} variant="outlined" disabled={!t?.clockIn || !!t?.breakStart}>Break start</Button>
-              <Button onClick={() => action(attendanceService.breakEnd, 'Break ended')} variant="outlined" disabled={!t?.breakStart || !!t?.breakEnd}>Break end</Button>
-              <Button onClick={() => action(attendanceService.lunchStart, 'Lunch started')} variant="outlined" disabled={!t?.clockIn || !!t?.lunchStart}>Lunch start</Button>
-              <Button onClick={() => action(attendanceService.lunchEnd, 'Lunch ended')} variant="outlined" disabled={!t?.lunchStart || !!t?.lunchEnd}>Lunch end</Button>
-              <Button onClick={() => action(attendanceService.clockOut, 'Clocked out')} variant="contained" color="error" disabled={!t?.clockIn || !!t?.clockOut}>Clock out</Button>
+              <Button onClick={() => action(attendanceService.clockIn, 'Clocked in')} variant="contained" color="success" disabled={!t?.deviceCheckInAt || !!t?.clockIn}>Clock in</Button>
+              <Button onClick={() => action(attendanceService.clockOut, 'Clocked out')} variant="contained" color="error" disabled={!t?.deviceCheckOutAt || !t?.clockIn || !!t?.clockOut}>Clock out</Button>
             </Stack>
           </CardContent></Card>
         </Grid>
