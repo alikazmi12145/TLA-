@@ -77,12 +77,7 @@ exports.clockIn = asyncHandler(async (req, res) => {
   }
   await doc.save();
 
-  await notifyAdmins({
-    type: 'ATTENDANCE_CLOCK_IN',
-    title: 'Employee clocked in',
-    message: `${req.user.fullName} (${req.user.employeeId || req.user.email}) clocked in at ${dayjs(doc.clockIn).format('HH:mm')}${isLate ? ` — ${lateMinutes}m late` : ''}.`,
-    meta: { employeeId: req.user._id, attendanceId: doc._id, at: doc.clockIn, isLate, lateMinutes, note: doc.note || undefined },
-  });
+  // Clock-in admin notifications are intentionally disabled (dashboard noise reduction).
 
   return success(res, doc, 'Clocked in');
 });
@@ -99,14 +94,7 @@ exports.clockOut = asyncHandler(async (req, res) => {
   }
   await doc.save();
 
-  const hrs = Math.floor(doc.workMinutes / 60);
-  const mins = doc.workMinutes % 60;
-  await notifyAdmins({
-    type: 'ATTENDANCE_CLOCK_OUT',
-    title: 'Employee clocked out',
-    message: `${req.user.fullName} (${req.user.employeeId || req.user.email}) clocked out at ${dayjs(doc.clockOut).format('HH:mm')} — worked ${hrs}h ${mins}m.`,
-    meta: { employeeId: req.user._id, attendanceId: doc._id, at: doc.clockOut, workMinutes: doc.workMinutes, note: doc.note || undefined },
-  });
+  // Clock-out admin notifications are intentionally disabled (dashboard noise reduction).
 
   return success(res, doc, 'Clocked out');
 });

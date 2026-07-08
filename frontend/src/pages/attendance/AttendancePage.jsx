@@ -25,7 +25,7 @@ export default function AttendancePage() {
   const { canAccess } = useSettingsPermissions();
   const isSuperAdmin = role === ROLES.SUPER_ADMIN;
   const canEditStatus = canAccess('attendance', 'manage');
-  const [filters, setFilters] = useState({ month: '', status: '', employee: '' });
+  const [filters, setFilters] = useState({ date: '', status: '', employee: '' });
   const [noteView, setNoteView] = useState({ open: false, employee: '', date: null, note: '' });
   const openNote = (a) => setNoteView({
     open: true,
@@ -35,7 +35,8 @@ export default function AttendancePage() {
   });
   const closeNote = () => setNoteView((s) => ({ ...s, open: false }));
   const queryParams = {
-    ...(filters.month ? { month: filters.month } : {}),
+    // Single-day filter uses from=to=selected date on the backend
+    ...(filters.date ? { from: filters.date, to: filters.date } : {}),
     ...(filters.status ? { status: filters.status } : {}),
     ...(filters.employee ? { employee: filters.employee } : {}),
     limit: 500,
@@ -64,7 +65,7 @@ export default function AttendancePage() {
     onError: (e) => toast.error(e?.response?.data?.message || 'Failed to update status'),
   });
 
-  const hasFilter = filters.month || filters.status || filters.employee;
+  const hasFilter = filters.date || filters.status || filters.employee;
   const count = data?.data?.length || 0;
   const subtitle = hasFilter
     ? `${count} record${count === 1 ? '' : 's'} (filtered)`
@@ -75,9 +76,10 @@ export default function AttendancePage() {
       <PageHeader title="Attendance" subtitle={subtitle} />
       <Card sx={{ mb: 2 }}>
         <CardContent>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ md: 'center' }}>
-            <TextField type="month" label="Month (optional)" InputLabelProps={{ shrink: true }} value={filters.month}
-              onChange={(e) => setFilters({ ...filters, month: e.target.value })} size="small" sx={{ minWidth: 180 }} />
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ md: 'center' }} flexWrap="wrap" useFlexGap>
+            <TextField type="date" label="Date (optional)" InputLabelProps={{ shrink: true }} value={filters.date}
+              onChange={(e) => setFilters({ ...filters, date: e.target.value })}
+              size="small" sx={{ minWidth: 180 }} />
             <TextField select label="Status" size="small" sx={{ minWidth: 180 }} value={filters.status}
               onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
               <MenuItem value="">All</MenuItem>
@@ -93,7 +95,7 @@ export default function AttendancePage() {
               ))}
             </TextField>
             {hasFilter && (
-              <Button size="small" onClick={() => setFilters({ month: '', status: '', employee: '' })}>Clear filters</Button>
+              <Button size="small" onClick={() => setFilters({ date: '', status: '', employee: '' })}>Clear filters</Button>
             )}
             {isFetching && <Box sx={{ ml: 'auto', fontSize: 12, opacity: 0.6 }}>Refreshing…</Box>}
           </Stack>

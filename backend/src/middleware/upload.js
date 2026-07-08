@@ -3,7 +3,17 @@ const path = require('path');
 const multer = require('multer');
 const ApiError = require('../utils/ApiError');
 
-const uploadDir = process.env.UPLOAD_DIR || 'uploads';
+// Resolve UPLOAD_DIR against the backend/ root (two levels above this file),
+// not process.cwd(). Under PM2, CWD depends on where `pm2 start` was invoked
+// or where PM2 respawns on reboot, so a relative path can drift between
+// process starts. Multer would then save files into one folder while
+// express.static reads from another, producing "uploads succeed but images
+// 404" bugs in production. Anchoring to __dirname eliminates that.
+const BACKEND_ROOT = path.resolve(__dirname, '..', '..');
+const rawUploadDir = process.env.UPLOAD_DIR || 'uploads';
+const uploadDir = path.isAbsolute(rawUploadDir)
+  ? rawUploadDir
+  : path.join(BACKEND_ROOT, rawUploadDir);
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
@@ -36,4 +46,4 @@ const withSubdir = (sub) => (req, _res, next) => {
   next();
 };
 
-module.exports = { upload, withSubdir };
+module.exports = { upload, withSubdir, uploadDir };

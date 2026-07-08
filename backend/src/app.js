@@ -1,4 +1,3 @@
-const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -19,6 +18,7 @@ const sanitizeRequest = (req, _res, next) => {
 
 const errorHandler = require('./middleware/errorHandler');
 const notFound = require('./middleware/notFound');
+const { uploadDir } = require('./middleware/upload');
 const routes = require('./routes');
 
 const app = express();
@@ -44,7 +44,9 @@ const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 600 });
 app.use('/api', limiter);
 
 // Static for uploaded files (profile pics, payslips, etc.)
-app.use('/uploads', express.static(path.join(process.cwd(), process.env.UPLOAD_DIR || 'uploads')));
+// Use the same absolute path multer writes to so uploads never 404 after save,
+// regardless of the process CWD (matters under PM2 / systemd).
+app.use('/uploads', express.static(uploadDir));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 

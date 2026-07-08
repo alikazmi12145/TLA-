@@ -49,42 +49,11 @@ const _fmtTime = (d) => {
   } catch { return String(d); }
 };
 
-const notifyAdminsOfPunch = async ({ employee, event, punchAt, device, doc }) => {
-  try {
-    if (event !== 'CHECK_IN' && event !== 'CHECK_OUT') return;
-    const recipients = await getAdminRecipients();
-    if (!recipients.length) return;
-    const name = employee.fullName || employee.employeeId || 'Employee';
-    const when = _fmtTime(punchAt);
-    const isIn = event === 'CHECK_IN';
-    const title = isIn ? `${name} checked in` : `${name} checked out`;
-    const message = isIn
-      ? `${name} punched in at ${when} on ${device?.name || 'biometric device'}.`
-      : `${name} punched out at ${when} on ${device?.name || 'biometric device'}.` +
-        (doc?.workMinutes
-          ? ` Total worked: ${Math.floor(doc.workMinutes / 60)}h ${doc.workMinutes % 60}m.`
-          : '');
-    const type = isIn ? 'ATTENDANCE_CLOCK_IN' : 'ATTENDANCE_CLOCK_OUT';
-    const meta = {
-      employeeId: employee._id,
-      employeeName: name,
-      deviceId: device?._id,
-      deviceName: device?.name,
-      event,
-      punchAt,
-      attendanceId: doc?._id,
-      clockIn: doc?.clockIn,
-      clockOut: doc?.clockOut,
-      workMinutes: doc?.workMinutes,
-    };
-    const docs = recipients.map((uid) => ({
-      user: uid, type, title, message, meta, link: '/attendance',
-    }));
-    await Notification.insertMany(docs, { ordered: false });
-    logger.info(`[biometric] notify ${event} for ${name} → ${recipients.length} admin(s)`);
-  } catch (err) {
-    logger.warn(`[biometric] notifyAdminsOfPunch failed: ${err.message}`);
-  }
+const notifyAdminsOfPunch = async () => {
+  // Clock-in / clock-out admin notifications are intentionally disabled
+  // to reduce dashboard noise. The punch is still persisted on the
+  // attendance row; only the fan-out to admin notification inboxes is skipped.
+  return;
 };
 
 // ------------------------------------------------------------------

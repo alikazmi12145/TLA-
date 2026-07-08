@@ -2,9 +2,15 @@ const asyncHandler = require('express-async-handler');
 const Notification = require('../models/Notification');
 const { success } = require('../utils/response');
 
+// Attendance clock-in / clock-out notifications are intentionally hidden from
+// the admin dashboard & notification bell. Existing DB rows are ignored via
+// this filter so no data-migration is required.
+const HIDDEN_TYPES = ['ATTENDANCE_CLOCK_IN', 'ATTENDANCE_CLOCK_OUT'];
+
 exports.list = asyncHandler(async (req, res) => {
-  const items = await Notification.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(50);
-  const unread = await Notification.countDocuments({ user: req.user._id, isRead: false });
+  const baseFilter = { user: req.user._id, type: { $nin: HIDDEN_TYPES } };
+  const items = await Notification.find(baseFilter).sort({ createdAt: -1 }).limit(50);
+  const unread = await Notification.countDocuments({ ...baseFilter, isRead: false });
   return success(res, { items, unread }, 'Notifications');
 });
 
