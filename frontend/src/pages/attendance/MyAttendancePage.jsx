@@ -82,12 +82,12 @@ export default function MyAttendancePage() {
                         background: isFirstSession ? 'transparent' : 'rgba(0,0,0,0.015)',
                       }}
                     >
-                      <td style={{ padding: '10px 8px' }}>{isFirstSession ? dayjs(a.date).format('ddd, MMM D') : ''}</td>
-                      <td style={{ padding: '10px 8px' }}>{isFirstSession ? shiftName : ''}</td>
-                      <td style={{ padding: '10px 8px', fontSize: 12, opacity: 0.85 }}>{isFirstSession ? shiftTime : ''}</td>
+                      <td style={{ padding: '10px 8px' }}>{dayjs(a.date).format('ddd, MMM D')}</td>
+                      <td style={{ padding: '10px 8px' }}>{shiftName}</td>
+                      <td style={{ padding: '10px 8px', fontSize: 12, opacity: 0.85 }}>{shiftTime}</td>
                       <td style={{ padding: '10px 8px', fontSize: 12, opacity: 0.85 }}>{sessionLabel}</td>
                       <td style={{ padding: '10px 8px' }}>
-                        {isFirstSession ? <Chip size="small" label={a.status} color={statusColor[a.status]} /> : ''}
+                        <Chip size="small" label={a.status} color={statusColor[a.status]} />
                       </td>
                       <td style={{ padding: '10px 8px' }}>{fmtTime(s.deviceCheckInAt)}</td>
                       <td style={{ padding: '10px 8px' }}>{fmtTime(s.clockIn)}</td>

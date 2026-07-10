@@ -177,13 +177,13 @@ export default function AttendancePage() {
                       background: isFirstSession ? 'transparent' : 'rgba(0,0,0,0.015)',
                     }}
                   >
-                    <td style={{ padding: '10px 8px' }}>{isFirstSession ? (a.employee?.fullName || '') : ''}</td>
-                    <td style={{ padding: '10px 8px' }}>{isFirstSession ? dayjs(a.date).format('MMM D, YYYY') : ''}</td>
-                    <td style={{ padding: '10px 8px' }}>{isFirstSession ? shiftName : ''}</td>
-                    <td style={{ padding: '10px 8px', fontSize: 12, opacity: 0.85 }}>{isFirstSession ? shiftTime : ''}</td>
+                    <td style={{ padding: '10px 8px' }}>{a.employee?.fullName || ''}</td>
+                    <td style={{ padding: '10px 8px' }}>{dayjs(a.date).format('MMM D, YYYY')}</td>
+                    <td style={{ padding: '10px 8px' }}>{shiftName}</td>
+                    <td style={{ padding: '10px 8px', fontSize: 12, opacity: 0.85 }}>{shiftTime}</td>
                     <td style={{ padding: '10px 8px', fontSize: 12, opacity: 0.85 }}>{sessionLabel}</td>
                     <td style={{ padding: '10px 8px' }}>
-                      {isFirstSession ? (
+                      {(
                         canEditStatus ? (
                           <Select
                             size="small"
@@ -211,7 +211,7 @@ export default function AttendancePage() {
                         ) : (
                           <Chip size="small" label={a.status} color={statusColor[a.status] || 'default'} />
                         )
-                      ) : ''}
+                      )}
                     </td>
                     <td style={{ padding: '10px 8px' }}>{fmtTime(s.deviceCheckInAt)}</td>
                     <td style={{ padding: '10px 8px' }}>{fmtTime(s.clockIn)}</td>
@@ -219,10 +219,10 @@ export default function AttendancePage() {
                     <td style={{ padding: '10px 8px' }}>{fmtTime(s.clockOut)}</td>
                     <td style={{ padding: '10px 8px' }}>{minutesToHours(s.workMinutes || 0)}</td>
                     <td style={{ padding: '10px 8px' }}>{s.lateMinutes || 0}</td>
-                    <td style={{ padding: '10px 8px' }}>{isFirstSession ? a.method : ''}</td>
+                    <td style={{ padding: '10px 8px' }}>{a.method}</td>
                     {isSuperAdmin && (
                       <td style={{ padding: '10px 8px' }}>
-                        {isFirstSession && a.note ? (
+                        {a.note ? (
                           <Button
                             size="small"
                             variant="outlined"
@@ -232,7 +232,7 @@ export default function AttendancePage() {
                           >
                             Check Note
                           </Button>
-                        ) : <span style={{ opacity: 0.4 }}>{isFirstSession ? '—' : ''}</span>}
+                        ) : <span style={{ opacity: 0.4 }}>—</span>}
                       </td>
                     )}
                   </tr>
