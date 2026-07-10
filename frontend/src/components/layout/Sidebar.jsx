@@ -104,7 +104,13 @@ export default function Sidebar({ onNavigate }) {
   const today = todayData?.data || null;
   const isClockedIn = !!today?.clockIn && !today?.clockOut;
   const isClockedOut = !!today?.clockIn && !!today?.clockOut;
-  const canClockIn = !!today?.deviceCheckInAt && !today?.clockIn;
+  // A device session is "open for web clock-in" only when the LAST session
+  // has a device check-in AND no device check-out yet — matches the
+  // backend gate in requireDeviceCheckInToday. Without the deviceCheckOutAt
+  // check the button would light up after a double-tap on the K40 (which
+  // silently closes the session on the device side) and every click would
+  // 403 with "punch your finger on the device first".
+  const canClockIn = !!today?.deviceCheckInAt && !today?.deviceCheckOutAt && !today?.clockIn;
   const canClockOut = !!today?.deviceCheckOutAt && !!today?.clockIn && !today?.clockOut;
 
   const invalidateAttendance = () => {

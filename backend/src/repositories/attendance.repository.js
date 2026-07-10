@@ -16,6 +16,10 @@
  */
 const Attendance = require('../models/Attendance');
 const User = require('../models/User');
+// Explicitly registered so ad-hoc callers (scripts, controllers that only
+// require this repo) can safely do `User.populate('shift')` even when the
+// Shift model hasn't been touched elsewhere in the process.
+require('../models/Shift');
 const { startOfDay, diffMinutes, resolveShiftAnchorDate } = require('../utils/date');
 const { ATTENDANCE_METHOD, ATTENDANCE_STATUS, CHECK_TYPE } = require('../config/constants');
 
@@ -94,14 +98,102 @@ const findOpenForEmployee = async (employeeId) => {
   // don't participate in the modern punch flow — a new punch must create a
   // fresh row for today rather than resurrecting an ancient legacy anchor.
   if (!Array.isArray(doc.sessions) || doc.sessions.length === 0) return null;
-  // Staleness anchor: prefer the last session's device-in (or clock-in) —
-  // this is when the currently open shift *actually* started, which is what
-  // matters for an overnight/forgotten-punch cap.
+  // Staleness anchor: use the MOST RECENT activity on the last session.
+  // Using the oldest (deviceCheckInAt) fails for overnight shifts where the
+  // session may have been auto-reopened from ancient device stamps or
+  // collapsed from earlier punches — the current shift's real anchor is the
+  // most recent clockIn / deviceCheckOutAt / deviceCheckInAt we've seen.
   const lastSession = doc.sessions[doc.sessions.length - 1];
-  const anchor = lastSession.deviceCheckInAt || lastSession.clockIn;
+  const anchor = [
+    lastSession.clockOut,
+    lastSession.deviceCheckOutAt,
+    lastSession.clockIn,
+    lastSession.deviceCheckInAt,
+  ].find(Boolean);
   if (!anchor) return null;
   const ageMs = Date.now() - new Date(anchor).getTime();
   if (ageMs > OPEN_SHIFT_MAX_HOURS * 60 * 60 * 1000) return null;
+  return doc;
+};
+
+// Window inside which a device-side "close" that never got a web clock-in
+// is assumed to be a K40 double-tap and can be auto-reopened by a
+// subsequent web Clock In. Must stay in sync with MIN_SESSION_MS in
+// upsertPunch — anything closer than this could not have been a real shift.
+const AUTO_REOPEN_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * Find the employee's MOST RECENT attendance row that looks like it was
+ * built entirely from K40 auto-toggled punches (the device sent only
+ * CHECK_IN-type events, our old logic split them across multiple wrongly-
+ * closed sessions, and the user never web-clocked-in on any of them).
+ *
+ * "Safe to auto-reopen" = the row's most recent device activity is recent
+ * (within the last 12 h) AND NO session on the row has a web clockIn or
+ * clockOut. Under those two conditions we know the user's intent was to
+ * check in — they've been tapping their finger with no web action yet —
+ * so we can safely collapse the mess into a single open session anchored
+ * at the earliest device-in on the row.
+ *
+ * Returns { doc, earliestDeviceIn } when the row is safe to auto-reopen,
+ * or null.
+ */
+const findAutoReopenableForClockIn = async (employeeId) => {
+  const doc = await Attendance.findOne({ employee: employeeId })
+    .sort({ date: -1, updatedAt: -1 });
+  if (!doc || !Array.isArray(doc.sessions) || doc.sessions.length === 0) return null;
+  // Any web activity anywhere on this row means we DO NOT touch it —
+  // reopening would corrupt payroll totals or a prior clocked shift.
+  const anyWebActivity = doc.sessions.some((s) => s.clockIn || s.clockOut);
+  if (anyWebActivity) return null;
+  // Only consider RECENT device stamps (last 12 h). Ancient stamps that
+  // survive from earlier polluted sessions must not be used as the new
+  // anchor — otherwise an auto-reopened session would look like it began
+  // 2 days ago, breaking overnight-shift staleness and lateness logic.
+  const RECENT_WINDOW_MS = 12 * 60 * 60 * 1000;
+  const now = Date.now();
+  const recentStamps = [];
+  for (const s of doc.sessions) {
+    if (s.deviceCheckInAt && now - new Date(s.deviceCheckInAt).getTime() <= RECENT_WINDOW_MS) {
+      recentStamps.push(new Date(s.deviceCheckInAt).getTime());
+    }
+    if (s.deviceCheckOutAt && now - new Date(s.deviceCheckOutAt).getTime() <= RECENT_WINDOW_MS) {
+      recentStamps.push(new Date(s.deviceCheckOutAt).getTime());
+    }
+  }
+  if (recentStamps.length === 0) return null;
+  const earliest = Math.min(...recentStamps);
+  const latest = Math.max(...recentStamps);
+  return { doc, earliestDeviceIn: new Date(earliest), latestDevice: new Date(latest) };
+};
+
+/**
+ * Collapse a row's multiple auto-toggle-generated sessions into a single
+ * open session anchored at the earliest device check-in. Caller must have
+ * obtained the row via `findAutoReopenableForClockIn` (which enforces the
+ * "no web activity anywhere" precondition).
+ *
+ * The web Clock In gate can then attach `clockIn = now()` to this session
+ * exactly as if the user had just taken a single clean device punch.
+ */
+const reopenLastSessionForClockIn = async (doc, { earliestDeviceIn } = {}) => {
+  if (!doc || !Array.isArray(doc.sessions) || doc.sessions.length === 0) {
+    throw new Error('reopenLastSessionForClockIn: no sessions');
+  }
+  const anchor = earliestDeviceIn || doc.sessions[0].deviceCheckInAt;
+  // Wipe every existing session and rebuild a single open one — safe
+  // because the caller guaranteed no web activity anywhere on the row.
+  doc.sessions = [{
+    deviceCheckInAt: anchor,
+    deviceCheckOutAt: null,
+    clockIn: null,
+    clockOut: null,
+    workMinutes: 0,
+    isLate: false,
+    lateMinutes: 0,
+  }];
+  recomputeAggregates(doc);
+  await doc.save();
   return doc;
 };
 
@@ -187,67 +279,78 @@ const upsertPunch = async ({
   doc.devicePunchAt = punchDate;
   doc.method = ATTENDANCE_METHOD.FINGERPRINT;
 
-  // 4) Decide whether this punch extends the current session or opens a
-  //    brand-new one (multi-shift on the same day).
+  // 4) K40 sends every tap as `checkType: CHECK_IN` unless the user
+  //    physically presses F4 first — which nobody does. So we can NOT
+  //    infer intent (check-in vs check-out) from the tap itself. The
+  //    working model is instead:
+  //
+  //      * First tap of a shift → opens a session (deviceCheckInAt).
+  //      * Every subsequent tap within SESSION_WINDOW_MS of the last
+  //        activity on that session (either the check-in or the current
+  //        check-out) is treated as "still the same shift" — we just
+  //        slide deviceCheckOutAt forward to the latest tap. Missed taps,
+  //        double-taps, and "did it register?" retaps all collapse into
+  //        one session naturally.
+  //      * A tap that arrives AFTER SESSION_WINDOW_MS of quiet time is a
+  //        genuine new shift — opens a fresh session on the same day.
+  //      * An explicit CHECK_OUT/OVERTIME_OUT (F4 was pressed) closes the
+  //        current session immediately regardless of gap.
+  //      * Duplicate replays from the poller (same timestamp already
+  //        processed) are silently no-ops.
   const isExplicitOut =
     checkType === CHECK_TYPE.CHECK_OUT || checkType === CHECK_TYPE.OVERTIME_OUT;
+  const SESSION_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 h — one shift's worth
   const lastIdx = doc.sessions.length - 1;
   const last = lastIdx >= 0 ? doc.sessions[lastIdx] : null;
-  // A session is "open on the device side" until deviceCheckOutAt is stamped.
-  const lastOpenOnDevice = !!(last && last.deviceCheckInAt && !last.deviceCheckOutAt);
-  // A session is "fully closed" only after both device- and web-out are set.
-  const lastFullyClosed =
-    !!last && !!last.deviceCheckOutAt && !!(last.clockIn ? last.clockOut : true);
-
-  // 5) Dedupe: reject any tap within 30 s of the most recent stamp on the
-  //    currently open (or just closed) session. Blocks double-taps and
-  //    re-imports from re-firing notifications.
-  const DEDUPE_MS = 30 * 1000;
-  const dedupeAnchor = last
+  const lastActivity = last
     ? (last.deviceCheckOutAt || last.deviceCheckInAt || null)
     : null;
-  if (dedupeAnchor && Math.abs(punchDate.getTime() - new Date(dedupeAnchor).getTime()) < DEDUPE_MS) {
+  const gapMs = lastActivity
+    ? punchDate.getTime() - new Date(lastActivity).getTime()
+    : Infinity;
+
+  // Duplicate replay from the poller — same tap already processed.
+  if (last && lastActivity && punchDate.getTime() === new Date(lastActivity).getTime()) {
     return { doc, event: 'DUPLICATE' };
   }
 
   let event = 'DUPLICATE';
 
-  if (!last || lastFullyClosed) {
-    // No sessions yet, or the previous shift is fully closed → open a new
-    // session for this punch. Rule 6 (multiple shifts per day) + Rule 8
-    // (overnight already handled by findOpenForEmployee upstream).
+  if (!last) {
+    // Empty row — open the first session of the day.
     doc.sessions.push({ deviceCheckInAt: punchDate });
     event = 'CHECK_IN';
-  } else if (lastOpenOnDevice) {
-    // Existing session is still open on the device side. Any subsequent
-    // punch closes it — Rule 3/9 (device is source of truth for check-out).
-    if (isExplicitOut) {
-      last.deviceCheckOutAt = punchDate;
-      event = 'CHECK_OUT';
-    } else if (punchDate < last.deviceCheckInAt) {
-      // A retro punch older than the current check-in: pull check-in back
-      // and treat the previous check-in as the check-out (preserves the
-      // "earliest in / latest out" invariant on the session).
-      const previousIn = last.deviceCheckInAt;
+  } else if (isExplicitOut && last.deviceCheckInAt && !last.deviceCheckOutAt) {
+    // User pressed F4 before tapping → close the open session now.
+    last.deviceCheckOutAt = punchDate;
+    event = 'CHECK_OUT';
+  } else if (!last.clockIn && gapMs >= 0 && gapMs <= SESSION_WINDOW_MS) {
+    // *** BEFORE web clockIn ***  The user is still in the "punched but not
+    // yet clocked in on the web" phase. Every subsequent tap in this phase
+    // is either a "did that register?" retap or a delayed second attempt.
+    // We treat them all as duplicates — the session stays OPEN
+    // (deviceCheckOutAt untouched) so the web Clock In gate can attach.
+    // We keep the EARLIEST tap as the check-in anchor so lateness is
+    // computed against the true arrival time.
+    if (punchDate < new Date(last.deviceCheckInAt)) {
       last.deviceCheckInAt = punchDate;
-      if (!last.deviceCheckOutAt || previousIn > last.deviceCheckOutAt) {
-        last.deviceCheckOutAt = previousIn;
-      }
-      event = 'CHECK_OUT';
-    } else if (punchDate.getTime() === new Date(last.deviceCheckInAt).getTime()) {
-      // exact duplicate replay from the poller — no-op
-    } else {
+    }
+    event = 'DUPLICATE';
+  } else if (last.clockIn && gapMs >= 0 && gapMs <= SESSION_WINDOW_MS) {
+    // *** AFTER web clockIn ***  User has already clocked in on the web.
+    // A subsequent tap is their "leaving" punch → slide device-out to the
+    // latest tap. Multiple taps around leaving time all collapse cleanly.
+    if (punchDate > new Date(last.deviceCheckInAt)) {
       last.deviceCheckOutAt = punchDate;
       event = 'CHECK_OUT';
     }
+  } else if (gapMs < 0) {
+    // Retro import — safe fallback is to no-op.
+    return { doc, event: 'DUPLICATE' };
   } else {
-    // The last session's device side is closed but web side isn't (waiting
-    // for the employee to press Clock Out in the app). A stray device punch
-    // in this window shouldn't rewrite the closure timestamp — record it
-    // as a duplicate/no-op so the web clock-out gate stays intact.
-    if (last.deviceCheckOutAt && punchDate > last.deviceCheckOutAt) {
-      last.deviceCheckOutAt = punchDate;
-    }
+    // Genuine long-gap punch → new session (second shift on same day).
+    doc.sessions.push({ deviceCheckInAt: punchDate });
+    event = 'CHECK_IN';
   }
 
   // 6) Resync top-level aggregates for the frontend / payroll / reports.
@@ -261,6 +364,8 @@ module.exports = {
   listByFilter,
   upsertPunch,
   findOpenForEmployee,
+  findAutoReopenableForClockIn,
+  reopenLastSessionForClockIn,
   ensureSessions,
   recomputeAggregates,
 };

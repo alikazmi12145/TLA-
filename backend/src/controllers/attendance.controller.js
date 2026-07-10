@@ -28,16 +28,70 @@ const {
 // Opportunistically pull the freshest attendance punches from the employee's
 // K40 before running the web Clock In / Clock Out gates. The background
 // poller only runs every 60 s, so without this the user can be blocked
-// simply because their real device punch hasn't been imported yet. Errors
-// are swallowed — a failing device sync must never prevent the fallback
-// gate check from running.
+// simply because their real device punch hasn't been imported yet. A
+// failing device sync must never prevent the fallback gate check from
+// running, but we DO capture the error and surface it in the gate's 403
+// so the user isn't told "punch your finger on the device first" when the
+// real cause is a network glitch to the K40.
+//
+// Perf: node-zklib always returns the full punch history on every call
+// (5-10s over LAN, more over WAN). We debounce so back-to-back web clicks
+// don't stack multiple full imports — if the background poller (or a prior
+// on-demand refresh) touched this device in the last DEBOUNCE_MS, we skip.
+const _REFRESH_DEBOUNCE_MS = 15 * 1000;
 const _refreshDeviceStateFor = async (user) => {
-  if (!user || !user.deviceId) return;
+  if (!user || !user.deviceId) return { synced: false, reason: 'no-device' };
   try {
-    await biometric.importAttendance(user.deviceId);
+    const Device = require('../models/Device');
+    const dev = await Device.findById(user.deviceId).select('lastSync').lean();
+    const age = dev?.lastSync ? Date.now() - new Date(dev.lastSync).getTime() : Infinity;
+    if (age < _REFRESH_DEBOUNCE_MS) {
+      return { synced: true, result: { skipped: true, reason: 'debounced' } };
+    }
+    const r = await biometric.importAttendance(user.deviceId);
+    return { synced: true, result: r };
   } catch (err) {
     logger.warn(`[attendance] on-demand device sync failed: ${err.message}`);
+    return { synced: false, reason: 'device-unreachable', error: err.message };
   }
+};
+
+// Explain to the user WHY the clock-in gate rejected them. Runs when
+// `findOpenForEmployee` returned no open row — inspects today's row (if
+// any) to pick a precise, actionable message instead of the generic
+// "punch your finger on device first".
+const _diagnoseNoOpenRow = async (employeeId, syncStatus) => {
+  // Device sync failed → tell the user the device is unreachable, don't
+  // blame them for not punching.
+  if (syncStatus && syncStatus.synced === false && syncStatus.reason === 'device-unreachable') {
+    return `Biometric device is unreachable right now — the server couldn't pull your latest punch. Try again in a moment, or contact HR. (${syncStatus.error})`;
+  }
+  const today = await Attendance.findOne({
+    employee: employeeId,
+    date: startOfDay(),
+  }).lean();
+  if (!today) {
+    return 'Punch your finger on the device first, then try again';
+  }
+  const sessions = Array.isArray(today.sessions) ? today.sessions : [];
+  const last = sessions[sessions.length - 1];
+  // A legacy row with no sessions[] — punch never landed on the new
+  // sessions[] model. Prompt a fresh punch.
+  if (!last) {
+    return 'Punch your finger on the device first, then try again';
+  }
+  // Session was already closed on the device (device-in AND device-out
+  // stamped) but never web-clocked in. The K40 probably auto-toggled on a
+  // repeat tap, or someone punched twice thinking the first didn't take.
+  if (last.deviceCheckInAt && last.deviceCheckOutAt && !last.clockIn) {
+    return 'Your last device punch was already registered as a check-OUT (the device treats a repeat tap as the opposite action). Punch your finger on the device again to start a fresh session, then click Clock In.';
+  }
+  // Session was fully closed (both device and web) — user needs to punch
+  // again to open a new session for a second shift.
+  if (last.deviceCheckInAt && last.deviceCheckOutAt && last.clockIn && last.clockOut) {
+    return 'Your previous shift is fully closed. Punch your finger on the device to start a new session, then try again.';
+  }
+  return 'Punch your finger on the device first, then try again';
 };
 
 const notifyAdmins = async ({ type, title, message, meta }) => {
@@ -81,13 +135,36 @@ const evaluateLate = async (employeeId, clockIn, anchorDate) => {
 // Locate the row + last-session index the web Clock In button should act on.
 // Returns the row when the employee has an OPEN shift whose last session has
 // a fresh device check-in waiting for the app clock-in — Rule 2/9/10.3.
-const requireDeviceCheckInToday = async (employeeId) => {
-  const row = await attendanceRepo.findOpenForEmployee(employeeId);
-  if (!row) throw new ApiError(403, 'Punch your finger on the device first, then try again');
+// `syncStatus` (optional) is the return value from `_refreshDeviceStateFor`
+// and is used only to enrich the 403 message when the gate rejects.
+const requireDeviceCheckInToday = async (employeeId, syncStatus) => {
+  let row = await attendanceRepo.findOpenForEmployee(employeeId);
+  if (!row) {
+    // Safety net: on K40 devices without F1/F4 keys, a user often taps
+    // twice ("did the first take?") — the second tap used to close the
+    // session on the device side, leaving no open row for the web Clock In
+    // gate to attach to. Detect that fingerprint (device-in + device-out
+    // both set within 15 min, no web clock-in) and auto-reopen the session
+    // so the user can proceed without another physical tap.
+    const reopenable = await attendanceRepo.findAutoReopenableForClockIn(employeeId);
+    if (reopenable) {
+      logger.info(
+        `[attendance] auto-reopening K40-auto-toggled row for employee=${employeeId}, anchor=${reopenable.earliestDeviceIn.toISOString()}`
+      );
+      row = await attendanceRepo.reopenLastSessionForClockIn(reopenable.doc, {
+        earliestDeviceIn: reopenable.earliestDeviceIn,
+      });
+    }
+  }
+  if (!row) {
+    const msg = await _diagnoseNoOpenRow(employeeId, syncStatus);
+    throw new ApiError(403, msg);
+  }
   attendanceRepo.ensureSessions(row);
   const last = row.sessions[row.sessions.length - 1];
   if (!last || !last.deviceCheckInAt) {
-    throw new ApiError(403, 'Punch your finger on the device first, then try again');
+    const msg = await _diagnoseNoOpenRow(employeeId, syncStatus);
+    throw new ApiError(403, msg);
   }
   return { row, last };
 };
@@ -95,9 +172,15 @@ const requireDeviceCheckInToday = async (employeeId) => {
 // Locate the row + last-session index the web Clock Out button should act on.
 // Requires an OPEN shift whose last session already carries a device
 // check-out — Rule 3/9/11.2.
-const requireDeviceCheckOutToday = async (employeeId) => {
+const requireDeviceCheckOutToday = async (employeeId, syncStatus) => {
   const row = await attendanceRepo.findOpenForEmployee(employeeId);
   if (!row) {
+    if (syncStatus && syncStatus.synced === false && syncStatus.reason === 'device-unreachable') {
+      throw new ApiError(
+        403,
+        `Biometric device is unreachable right now — the server couldn't pull your latest punch. Try again in a moment. (${syncStatus.error})`
+      );
+    }
     throw new ApiError(
       403,
       'No active shift found. Punch your finger on the device to check out, then try again.'
@@ -106,6 +189,12 @@ const requireDeviceCheckOutToday = async (employeeId) => {
   attendanceRepo.ensureSessions(row);
   const last = row.sessions[row.sessions.length - 1];
   if (!last || !last.deviceCheckOutAt) {
+    if (syncStatus && syncStatus.synced === false && syncStatus.reason === 'device-unreachable') {
+      throw new ApiError(
+        403,
+        `Biometric device is unreachable right now — the server couldn't pull your latest punch. Try again in a moment. (${syncStatus.error})`
+      );
+    }
     throw new ApiError(
       403,
       'No device check-out recorded yet. Wait a moment, punch your finger on the device to check out, then try again. (The K40 rejects repeat punches within its configured window — wait 30-60s if it beeps "duplicate".)'
@@ -124,23 +213,21 @@ exports.clockIn = asyncHandler(async (req, res) => {
   // Best-effort: pull any pending device punches BEFORE checking the gate so
   // a real device check-in that hasn't been picked up by the 60 s poller
   // yet is honoured immediately.
-  await _refreshDeviceStateFor(req.user);
+  const syncStatus = await _refreshDeviceStateFor(req.user);
 
   // Rule 10.3 — device check-in must exist on the open session.
-  const { row, last } = await requireDeviceCheckInToday(req.user._id);
+  const { row, last } = await requireDeviceCheckInToday(req.user._id, syncStatus);
 
   // Rule 4 / 10.5 — reject if this session already has a web clock-in.
   if (last.clockIn) throw new ApiError(400, 'Already clocked in — clock out first');
 
-  // Rule 7 / 10.4 — every session BEFORE the last one must be fully closed
-  // (both device and web checkout). Prevents starting a new shift while an
-  // earlier one is still hanging.
-  for (let i = 0; i < row.sessions.length - 1; i += 1) {
-    const s = row.sessions[i];
-    if (!s.clockOut || !s.deviceCheckOutAt) {
-      throw new ApiError(400, 'Previous shift not fully closed');
-    }
-  }
+  // NOTE: earlier revisions auto-backfilled prior sessions' web times from
+  // device stamps here. That was wrong — every K40 auto-toggle micro-
+  // session then rendered as a "completed" log entry. Leave prior sessions
+  // untouched: without clockIn/clockOut they don't appear in the log
+  // (isCompletedSession filters them out) and they don't contribute to
+  // workMinutes. Any real prior shift still shows because it has real web
+  // clock times.
 
   last.clockIn = new Date();
 
@@ -173,10 +260,10 @@ exports.clockOut = asyncHandler(async (req, res) => {
   // Best-effort: pull any pending device punches BEFORE checking the gate
   // so a fresh device check-out isn't rejected just because the 60 s
   // background poller hasn't run yet.
-  await _refreshDeviceStateFor(req.user);
+  const syncStatus = await _refreshDeviceStateFor(req.user);
 
   // Rule 11.2 — device checkout must be present on the open session.
-  const { row, last } = await requireDeviceCheckOutToday(req.user._id);
+  const { row, last } = await requireDeviceCheckOutToday(req.user._id, syncStatus);
 
   // Rule 11.1 — active web clock-in must exist on this session.
   if (!last.clockIn) throw new ApiError(400, 'Clock-in required first');

@@ -36,6 +36,12 @@ const deviceSchema = new mongoose.Schema(
     },
     lastPing: { type: Date },
     lastSync: { type: Date },
+    // Newest punch timestamp we've ever processed from this device. Used as
+    // a high-water mark by importAttendance so we don't re-run upsertPunch
+    // (or re-log DevicePunch upserts) for the tens of thousands of
+    // historical punches the K40 keeps returning on every getAttendance()
+    // call. Set to the max(recordTime) of the last import cycle.
+    lastPunchAt: { type: Date },
     lastError: { type: String },
     // Counters (best-effort, refreshed on sync operations)
     userCount: { type: Number, default: 0 },

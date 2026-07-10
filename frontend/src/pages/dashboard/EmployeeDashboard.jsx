@@ -153,7 +153,7 @@ export default function EmployeeDashboard() {
             ) : null}
 
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Button onClick={() => action(attendanceService.clockIn, 'Clocked in')} variant="contained" color="success" disabled={!t?.deviceCheckInAt || !!t?.clockIn}>Clock in</Button>
+              <Button onClick={() => action(attendanceService.clockIn, 'Clocked in')} variant="contained" color="success" disabled={!t?.deviceCheckInAt || !!t?.deviceCheckOutAt || !!t?.clockIn}>Clock in</Button>
               <Button onClick={() => action(attendanceService.clockOut, 'Clocked out')} variant="contained" color="error" disabled={!t?.deviceCheckOutAt || !t?.clockIn || !!t?.clockOut}>Clock out</Button>
             </Stack>
           </CardContent></Card>
