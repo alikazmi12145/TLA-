@@ -88,21 +88,28 @@ exports.employeeSummary = asyncHandler(async (req, res) => {
 
 exports.recentActivity = asyncHandler(async (_req, res) => {
   const [latestLeaves, latestPayrolls] = await Promise.all([
-    Leave.find().populate('employee', 'fullName').sort({ createdAt: -1 }).limit(5),
-    Payroll.find().populate('employee', 'fullName').sort({ createdAt: -1 }).limit(5),
+    Leave.find().populate('employee', 'fullName').sort({ createdAt: -1 }).limit(10),
+    Payroll.find().populate('employee', 'fullName').sort({ createdAt: -1 }).limit(10),
   ]);
   const items = [
-    ...latestLeaves.map((l) => ({
-      type: 'LEAVE',
-      title: `${l.employee?.fullName || 'Employee'} requested ${l.type} leave`,
-      status: l.status,
-      at: l.createdAt,
-    })),
-    ...latestPayrolls.map((p) => ({
-      type: 'PAYROLL',
-      title: `Payroll ${p.status} for ${p.employee?.fullName}`,
-      at: p.createdAt,
-    })),
+    ...latestLeaves
+      // Skip leaves whose employee has been deleted — otherwise the
+      // populate returns null and the activity feed would read
+      // "null requested … leave".
+      .filter((l) => l.employee && l.employee.fullName)
+      .map((l) => ({
+        type: 'LEAVE',
+        title: `${l.employee.fullName} requested ${l.type} leave`,
+        status: l.status,
+        at: l.createdAt,
+      })),
+    ...latestPayrolls
+      .filter((p) => p.employee && p.employee.fullName)
+      .map((p) => ({
+        type: 'PAYROLL',
+        title: `Payroll ${p.status} for ${p.employee.fullName}`,
+        at: p.createdAt,
+      })),
   ].sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, 10);
   return success(res, items, 'Recent activity');
 });

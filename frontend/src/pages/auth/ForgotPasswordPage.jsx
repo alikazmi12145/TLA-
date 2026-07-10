@@ -12,8 +12,8 @@ export default function ForgotPasswordPage() {
   };
   return (
     <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 2, background: 'linear-gradient(135deg,#0b1020,#1a1f3d)' }}>
-      <Card sx={{ width: 420, maxWidth: '100%' }}>
-        <CardContent sx={{ p: 4 }}>
+      <Card sx={{ width: { xs: '100%', sm: 420 }, maxWidth: '100%' }}>
+        <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
           <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>Forgot password</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Enter your email to receive a reset link.

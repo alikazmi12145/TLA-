@@ -14,8 +14,8 @@ export default function ChangePasswordPage() {
   return (
     <>
       <PageHeader title="Change password" subtitle="Update your account password" />
-      <Card sx={{ maxWidth: 520 }}>
-        <CardContent>
+      <Card sx={{ maxWidth: 520, width: '100%' }}>
+        <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
           <form onSubmit={handleSubmit(onSubmit)}>
             <Stack spacing={2}>
               <TextField type="password" label="Current password" fullWidth required {...register('currentPassword', { required: true })} />

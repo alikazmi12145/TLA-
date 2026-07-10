@@ -89,7 +89,14 @@ exports.balance = asyncHandler(async (req, res) => {
     },
     { $group: { _id: '$type', used: { $sum: '$days' } } },
   ]);
-  const allotment = { CASUAL: 10, SICK: 8, ANNUAL: 14, EMERGENCY: 5 };
+  const Setting = require('../models/Setting');
+  const settings = (await Setting.findOne().lean()) || {};
+  const allotment = {
+    CASUAL: settings?.leaveAllotments?.CASUAL ?? 10,
+    SICK: settings?.leaveAllotments?.SICK ?? 8,
+    ANNUAL: settings?.leaveAllotments?.ANNUAL ?? 14,
+    EMERGENCY: settings?.leaveAllotments?.EMERGENCY ?? 5,
+  };
   const result = Object.keys(allotment).map((k) => {
     const used = items.find((i) => i._id === k)?.used || 0;
     return { type: k, allotment: allotment[k], used, remaining: Math.max(0, allotment[k] - used) };

@@ -37,8 +37,8 @@ export default function LoginPage() {
         p: 2,
       }}
     >
-      <Card sx={{ width: 440, maxWidth: '100%', backdropFilter: 'blur(20px)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
-        <CardContent sx={{ p: 4, color: '#fff' }}>
+      <Card sx={{ width: { xs: '100%', sm: 440 }, maxWidth: '100%', backdropFilter: 'blur(20px)', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+        <CardContent sx={{ p: { xs: 3, sm: 4 }, color: '#fff' }}>
           <Box sx={{ textAlign: 'center', mb: 3, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <TLALogo size={104} sx={{ mb: 1.5 }} />
             <Typography variant="h4" sx={{ fontWeight: 800, letterSpacing: 4, background: 'linear-gradient(135deg,#5b6ef5,#a855f7)', WebkitBackgroundClip: 'text', color: 'transparent' }}>

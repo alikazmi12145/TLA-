@@ -55,7 +55,7 @@ export default function MyAttendancePage() {
       <Card><CardContent>
         {isLoading ? <TableSkeleton /> : (rows.length ? (
           <Box sx={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', minWidth: 780, borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left' }}>
                 {['Date', 'Shift', 'Shift Time', 'Session', 'Status', 'Device In', 'Clock In', 'Device Out', 'Clock Out', 'Hours'].map((h) => (
                   <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>

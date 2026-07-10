@@ -36,6 +36,9 @@ const expandSessions = (docs) => {
   const rows = [];
   if (!Array.isArray(docs)) return rows;
   for (const a of docs) {
+    // Skip orphaned attendance docs whose employee reference no longer
+    // resolves (user was deleted before cascade cleanup, or race window).
+    if (!a.employee || typeof a.employee !== 'object') continue;
     const sessions = Array.isArray(a.sessions)
       ? a.sessions.filter(isCompletedSession)
       : [];
@@ -142,7 +145,7 @@ export default function AttendancePage() {
       <Card><CardContent>
         {isLoading ? <TableSkeleton /> : (rows.length ? (
           <Box sx={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left' }}>
                 {[
                   'Employee', 'Date', 'Shift', 'Shift Time', 'Session',

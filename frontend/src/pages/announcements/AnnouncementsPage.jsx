@@ -186,7 +186,7 @@ export default function AnnouncementsPage() {
                     <Typography variant="body2" fontWeight={700}>{r.title}</Typography>
                     <Typography variant="caption" color="text.secondary" sx={{
                       display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden', maxWidth: 380,
+                      overflow: 'hidden', maxWidth: { xs: '100%', sm: 380 },
                     }}>
                       {r.message}
                     </Typography>
@@ -260,7 +260,7 @@ export default function AnnouncementsPage() {
                 onChange={(e) => setDialog((s) => ({ ...s, form: { ...s.form, message: e.target.value } }))}
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} sm={6} md={6}>
               <TextField
                 select label="Priority" fullWidth
                 value={dialog.form.priority}
@@ -269,7 +269,7 @@ export default function AnnouncementsPage() {
                 {PRIORITIES.map((p) => <MenuItem key={p} value={p}>{p}</MenuItem>)}
               </TextField>
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} sm={6} md={6}>
               <TextField
                 select label="Audience" fullWidth
                 value={dialog.form.audience}
@@ -326,7 +326,7 @@ export default function AnnouncementsPage() {
               </Grid>
             )}
 
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} sm={6} md={6}>
               <TextField
                 type="datetime-local" label="Publish at" fullWidth InputLabelProps={{ shrink: true }}
                 helperText="Leave blank to publish immediately"
@@ -334,7 +334,7 @@ export default function AnnouncementsPage() {
                 onChange={(e) => setDialog((s) => ({ ...s, form: { ...s.form, publishAt: e.target.value } }))}
               />
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid item xs={12} sm={6} md={6}>
               <TextField
                 type="datetime-local" label="Expires at" fullWidth InputLabelProps={{ shrink: true }}
                 helperText="Optional"

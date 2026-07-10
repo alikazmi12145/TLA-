@@ -115,7 +115,7 @@ export default function GeneratePayrollDialog({ open, onClose, onGenerated, defa
 
       <DialogContent dividers>
         <Grid container spacing={2}>
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} sm={6} md={6}>
             <TextField
               select
               fullWidth
@@ -132,7 +132,7 @@ export default function GeneratePayrollDialog({ open, onClose, onGenerated, defa
               ))}
             </TextField>
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid item xs={12} sm={6} md={3}>
             <TextField
               select
               fullWidth
@@ -146,7 +146,7 @@ export default function GeneratePayrollDialog({ open, onClose, onGenerated, defa
               ))}
             </TextField>
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid item xs={12} sm={6} md={3}>
             <TextField
               type="number"
               fullWidth

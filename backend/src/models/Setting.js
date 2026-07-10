@@ -15,6 +15,14 @@ const settingSchema = new mongoose.Schema(
     currency: { type: String, default: 'PKR' },
     workingDaysPerMonth: { type: Number, default: 26 },
     workingHoursPerDay: { type: Number, default: 8 },
+    // Yearly leave allotments per type. Values are editable from the
+    // Settings page and consumed by /leaves/balance + dashboards.
+    leaveAllotments: {
+      CASUAL: { type: Number, default: 10, min: 0 },
+      SICK: { type: Number, default: 8, min: 0 },
+      ANNUAL: { type: Number, default: 14, min: 0 },
+      EMERGENCY: { type: Number, default: 5, min: 0 },
+    },
     // Flat charge per late arrival (applied after lateGraceCount lates are ignored).
     lateDeductionPerDay: { type: Number, default: 500 },
     absentDeductionPerDay: { type: Number, default: 0 },

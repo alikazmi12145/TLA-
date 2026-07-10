@@ -10,6 +10,16 @@ export const LEAVE_STATUS = ['PENDING', 'APPROVED', 'REJECTED'];
 export const ATTENDANCE_STATUS = ['PRESENT', 'ABSENT', 'LEAVE', 'HOLIDAY', 'LATE', 'HALF_DAY'];
 export const TARGET_TYPES = ['ONCE', 'WEEKLY', 'MONTHLY'];
 
+// Shared chart color palette — imported by dashboards and analytics
+// widgets so the visual language stays consistent app-wide.
+export const CHART_COLORS = ['#5b6ef5', '#a855f7', '#1aab50', '#f5a524', '#ef4444', '#06b6d4'];
+
+// Fallback used only if the Settings API has not loaded yet — the real
+// values are stored in the Setting document and edited from the
+// Settings page (Setting.leaveAllotments / Setting.workingHoursPerDay).
+export const DEFAULT_LEAVE_ALLOTMENTS = { CASUAL: 10, SICK: 8, ANNUAL: 14, EMERGENCY: 5 };
+export const DEFAULT_WORK_HOURS_PER_DAY = 8;
+
 export const SYNC_STATUS = {
   PENDING: 'PENDING',
   SYNCED: 'SYNCED',

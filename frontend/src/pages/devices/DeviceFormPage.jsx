@@ -58,23 +58,23 @@ export default function DeviceFormPage() {
         <CardContent sx={{ p: 3 }}>
           <form onSubmit={handleSubmit(onSubmit)}>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={6}><TextField label="Device Name" fullWidth required {...register('name', { required: true })} /></Grid>
-              <Grid item xs={12} md={6}><TextField label="Model" fullWidth {...register('model')} /></Grid>
-              <Grid item xs={12} md={4}><TextField label="Device IP" fullWidth required placeholder="192.168.1.201" {...register('ip', { required: true })} /></Grid>
+              <Grid item xs={12} sm={6} md={6}><TextField label="Device Name" fullWidth required {...register('name', { required: true })} /></Grid>
+              <Grid item xs={12} sm={6} md={6}><TextField label="Model" fullWidth {...register('model')} /></Grid>
+              <Grid item xs={12} sm={6} md={4}><TextField label="Device IP" fullWidth required placeholder="192.168.1.201" {...register('ip', { required: true })} /></Grid>
               <Grid item xs={6} md={2}><TextField label="Port" type="number" fullWidth {...register('port')} /></Grid>
               <Grid item xs={6} md={2}><TextField label="UDP inport" type="number" fullWidth {...register('inport')} /></Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} sm={6} md={4}>
                 <Controller name="connectionType" control={control} render={({ field }) => (
                   <TextField select label="Connection Type" fullWidth {...field}>
                     {DEVICE_CONN_TYPE.map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
                   </TextField>
                 )} />
               </Grid>
-              <Grid item xs={12} md={4}><TextField label="Serial Number" fullWidth {...register('serialNumber')} /></Grid>
-              <Grid item xs={12} md={4}><TextField label="Firmware" fullWidth {...register('firmware')} /></Grid>
-              <Grid item xs={12} md={4}><TextField label="Comm Key" type="number" fullWidth helperText="0 if not set on device" {...register('commKey')} /></Grid>
+              <Grid item xs={12} sm={6} md={4}><TextField label="Serial Number" fullWidth {...register('serialNumber')} /></Grid>
+              <Grid item xs={12} sm={6} md={4}><TextField label="Firmware" fullWidth {...register('firmware')} /></Grid>
+              <Grid item xs={12} sm={6} md={4}><TextField label="Comm Key" type="number" fullWidth helperText="0 if not set on device" {...register('commKey')} /></Grid>
               <Grid item xs={12} md={8}><TextField label="Location" fullWidth {...register('location')} /></Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} sm={6} md={4}>
                 <Stack direction="row" spacing={2} alignItems="center" sx={{ pt: 1 }}>
                   <Controller name="enabled" control={control} render={({ field }) => (
                     <FormControlLabel control={<Switch checked={!!field.value} onChange={(e) => field.onChange(e.target.checked)} />} label="Enabled" />

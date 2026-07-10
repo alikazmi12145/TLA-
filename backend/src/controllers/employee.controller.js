@@ -103,6 +103,31 @@ exports.update = asyncHandler(async (req, res) => {
 exports.remove = asyncHandler(async (req, res) => {
   const user = await User.findByIdAndDelete(req.params.id);
   if (!user) throw new ApiError(404, 'Employee not found');
+  // Cascade-delete records that reference this employee so they don't
+  // surface as orphaned rows (e.g. attendance sessions with a null
+  // `employee` populate result) after the user is removed. Also null
+  // out references on records we keep (Department.head, Target.setBy /
+  // completedBy) so populates don't return stale ids.
+  const Attendance = require('../models/Attendance');
+  const DevicePunch = require('../models/DevicePunch');
+  const Leave = require('../models/Leave');
+  const Payroll = require('../models/Payroll');
+  const Notification = require('../models/Notification');
+  const Commission = require('../models/Commission');
+  const Target = require('../models/Target');
+  const Department = require('../models/Department');
+  await Promise.allSettled([
+    Attendance.deleteMany({ employee: user._id }),
+    DevicePunch.deleteMany({ employee: user._id }),
+    Leave.deleteMany({ employee: user._id }),
+    Payroll.deleteMany({ employee: user._id }),
+    Notification.deleteMany({ user: user._id }),
+    Commission.deleteMany({ employee: user._id }),
+    Target.deleteMany({ employee: user._id }),
+    Target.updateMany({ completedBy: user._id }, { $set: { completedBy: null } }),
+    Target.updateMany({ setBy: user._id }, { $set: { setBy: null } }),
+    Department.updateMany({ head: user._id }, { $set: { head: null } }),
+  ]);
   return success(res, {}, 'Employee deleted');
 });
 

@@ -5,6 +5,7 @@ const Notification = require('../models/Notification');
 const ApiError = require('../utils/ApiError');
 const { success } = require('../utils/response');
 const { ROLES } = require('../config/constants');
+const logger = require('../utils/logger');
 
 const fmtPeriod = (start, end) =>
   `${dayjs(start).format('MMM D')} → ${dayjs(end).format('MMM D, YYYY')}`;
@@ -17,7 +18,7 @@ const sweepTargets = async (filter = {}) => {
       { ...filter, periodEnd: { $lt: new Date() }, status: 'PENDING' },
       { $set: { status: 'EXPIRED' } }
     );
-  } catch {}
+  } catch (err) { logger.error('sweepTargets failed:', err.message); }
 };
 
 exports.list = asyncHandler(async (req, res) => {
@@ -56,7 +57,7 @@ exports.create = asyncHandler(async (req, res) => {
       message: `A ${String(item.type || '').toLowerCase()} task of ${item.targetValue} has been set for you (${fmtPeriod(item.periodStart, item.periodEnd)}).`,
       meta: { targetId: item._id, type: item.type, targetValue: item.targetValue },
     });
-  } catch {}
+  } catch (err) { logger.error('target create notify failed:', err.message); }
   return success(res, item, 'Task created', 201);
 });
 
@@ -97,9 +98,9 @@ exports.update = asyncHandler(async (req, res) => {
           message: `${item.employee} completed a task (${fmtPeriod(item.periodStart, item.periodEnd)}).`,
           meta: { targetId: item._id },
         });
-      } catch {}
+      } catch (err) { logger.error('target completed notify failed:', err.message); }
     }
-  } catch {}
+  } catch (err) { logger.error('target update notify failed:', err.message); }
   return success(res, item, 'Task updated');
 });
 
@@ -186,7 +187,7 @@ exports.complete = asyncHandler(async (req, res) => {
         meta: { targetId: item._id },
       });
     }
-  } catch {}
+  } catch (err) { logger.error('complete notify failed:', err.message); }
   return success(res, item, 'Task completed');
 });
 
@@ -218,7 +219,7 @@ exports.addEmployeeNote = asyncHandler(async (req, res) => {
         meta: { targetId: item._id },
       });
     }
-  } catch {}
+  } catch (err) { logger.error('note notify failed:', err.message); }
 
   return success(res, item, 'Note saved');
 });

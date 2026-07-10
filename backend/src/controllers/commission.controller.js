@@ -5,6 +5,7 @@ const Notification = require('../models/Notification');
 const ApiError = require('../utils/ApiError');
 const { success } = require('../utils/response');
 const { startOfMonth, endOfMonth } = require('../utils/date');
+const logger = require('../utils/logger');
 
 exports.list = asyncHandler(async (req, res) => {
   const filter = {};
@@ -34,7 +35,7 @@ exports.create = asyncHandler(async (req, res) => {
       message: `A commission entry of ${item.amount ?? item.commissionAmount ?? ''} has been recorded for you.`,
       meta: { commissionId: item._id },
     });
-  } catch {}
+  } catch (err) { logger.error('commission notify failed:', err.message); }
   return success(res, item, 'Commission created', 201);
 });
 

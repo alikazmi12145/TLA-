@@ -149,19 +149,19 @@ export default function EmployeeFormPage() {
             </Stack>
 
             <Grid container spacing={2}>
-              <Grid item xs={12} md={4}><TextField label="Employee ID" fullWidth {...register('employeeId')} /></Grid>
-              <Grid item xs={12} md={4}><TextField label="Full Name" fullWidth required {...register('fullName', { required: true })} /></Grid>
-              <Grid item xs={12} md={4}><TextField label="Email" type="email" fullWidth required {...register('email', { required: true })} /></Grid>
-              <Grid item xs={12} md={4}><TextField label="Phone" fullWidth {...register('phone')} /></Grid>
-              <Grid item xs={12} md={4}><TextField label="CNIC" fullWidth {...register('cnic')} /></Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} sm={6} md={4}><TextField label="Employee ID" fullWidth {...register('employeeId')} /></Grid>
+              <Grid item xs={12} sm={6} md={4}><TextField label="Full Name" fullWidth required {...register('fullName', { required: true })} /></Grid>
+              <Grid item xs={12} sm={6} md={4}><TextField label="Email" type="email" fullWidth required {...register('email', { required: true })} /></Grid>
+              <Grid item xs={12} sm={6} md={4}><TextField label="Phone" fullWidth {...register('phone')} /></Grid>
+              <Grid item xs={12} sm={6} md={4}><TextField label="CNIC" fullWidth {...register('cnic')} /></Grid>
+              <Grid item xs={12} sm={6} md={4}>
                 <Controller name="role" control={control} render={({ field }) => (
                   <TextField select label="Role" fullWidth {...field}>
                     {Object.values(ROLES).map((r) => <MenuItem key={r} value={r}>{r.replace('_', ' ')}</MenuItem>)}
                   </TextField>
                 )} />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} sm={6} md={4}>
                 <Controller name="department" control={control} render={({ field }) => (
                   <TextField select label="Department" fullWidth {...field}>
                     <MenuItem value="">—</MenuItem>
@@ -169,9 +169,9 @@ export default function EmployeeFormPage() {
                   </TextField>
                 )} />
               </Grid>
-              <Grid item xs={12} md={4}><TextField label="Designation" fullWidth {...register('designation')} /></Grid>
-              <Grid item xs={12} md={4}><TextField type="date" label="Joining Date" InputLabelProps={{ shrink: true }} fullWidth {...register('joiningDate')} /></Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} sm={6} md={4}><TextField label="Designation" fullWidth {...register('designation')} /></Grid>
+              <Grid item xs={12} sm={6} md={4}><TextField type="date" label="Joining Date" InputLabelProps={{ shrink: true }} fullWidth {...register('joiningDate')} /></Grid>
+              <Grid item xs={12} sm={6} md={4}>
                 <Controller name="shift" control={control} render={({ field }) => (
                   <TextField select label="Shift" fullWidth {...field}>
                     <MenuItem value="">—</MenuItem>
@@ -179,10 +179,10 @@ export default function EmployeeFormPage() {
                   </TextField>
                 )} />
               </Grid>
-              <Grid item xs={12} md={4}><TextField type="number" label="Basic Salary" fullWidth {...register('basicSalary', { valueAsNumber: true })} /></Grid>
-              <Grid item xs={12} md={4}><TextField type="number" label="Daily Target" fullWidth {...register('dailyTarget', { valueAsNumber: true })} /></Grid>
-              <Grid item xs={12} md={4}><TextField type="number" label="Commission %" fullWidth {...register('commissionRate', { valueAsNumber: true })} /></Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} sm={6} md={4}><TextField type="number" label="Basic Salary" fullWidth {...register('basicSalary', { valueAsNumber: true })} /></Grid>
+              <Grid item xs={12} sm={6} md={4}><TextField type="number" label="Daily Target" fullWidth {...register('dailyTarget', { valueAsNumber: true })} /></Grid>
+              <Grid item xs={12} sm={6} md={4}><TextField type="number" label="Commission %" fullWidth {...register('commissionRate', { valueAsNumber: true })} /></Grid>
+              <Grid item xs={12} sm={6} md={4}>
                 <Controller
                   name="weeklyOffDays"
                   control={control}
@@ -219,7 +219,7 @@ export default function EmployeeFormPage() {
                   )}
                 />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} sm={6} md={4}>
                 <Controller name="status" control={control} render={({ field }) => (
                   <TextField select label="Status" fullWidth {...field}>
                     {['ACTIVE', 'INACTIVE', 'TERMINATED', 'ON_LEAVE'].map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
@@ -227,7 +227,7 @@ export default function EmployeeFormPage() {
                 )} />
               </Grid>
               {!isEdit && (
-                <Grid item xs={12} md={4}>
+                <Grid item xs={12} sm={6} md={4}>
                   <TextField label="Initial Password" type="password" fullWidth helperText="Defaults to Welcome@123 if empty" {...register('password')} />
                 </Grid>
               )}

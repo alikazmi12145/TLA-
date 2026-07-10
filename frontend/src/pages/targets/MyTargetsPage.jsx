@@ -65,7 +65,7 @@ export default function MyTargetsPage() {
       />
 
       <Grid container spacing={2} sx={{ mb: 2 }} className="stagger">
-        <Grid item xs={6} md={3}>
+        <Grid item xs={12} sm={6} md={3}>
           <Card><CardContent>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.6 }}>OVERALL</Typography>
             <Typography variant="h5" sx={{ fontWeight: 800 }}>{overallPct.toFixed(1)}%</Typography>
@@ -76,19 +76,19 @@ export default function MyTargetsPage() {
             />
           </CardContent></Card>
         </Grid>
-        <Grid item xs={6} md={3}>
+        <Grid item xs={12} sm={6} md={3}>
           <Card><CardContent>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.6 }}>TOTAL TASK</Typography>
             <Typography variant="h5" sx={{ fontWeight: 800 }}>{summary.total}</Typography>
           </CardContent></Card>
         </Grid>
-        <Grid item xs={6} md={3}>
+        <Grid item xs={12} sm={6} md={3}>
           <Card><CardContent>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.6 }}>ACHIEVED</Typography>
             <Typography variant="h5" sx={{ fontWeight: 800 }}>{summary.achieved}</Typography>
           </CardContent></Card>
         </Grid>
-        <Grid item xs={6} md={3}>
+        <Grid item xs={12} sm={6} md={3}>
           <Card><CardContent>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 0.6 }}>COMPLETED / PENDING</Typography>
             <Typography variant="h5" sx={{ fontWeight: 800 }}>

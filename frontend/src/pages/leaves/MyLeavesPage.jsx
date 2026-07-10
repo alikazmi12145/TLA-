@@ -75,7 +75,7 @@ export default function MyLeavesPage() {
 
       <Grid container spacing={2} sx={{ mb: 2 }}>
         {(balance?.data || []).map((b) => (
-          <Grid item xs={6} md={3} key={b.type}>
+          <Grid item xs={12} sm={6} md={3} key={b.type}>
             <Card><CardContent>
               <Box sx={{ fontSize: 12, opacity: 0.7 }}>{b.type}</Box>
               <Box sx={{ fontSize: 24, fontWeight: 800 }}>{b.remaining}<span style={{ fontSize: 12, opacity: 0.6 }}> / {b.allotment}</span></Box>

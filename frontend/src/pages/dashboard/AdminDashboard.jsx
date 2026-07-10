@@ -22,8 +22,7 @@ import AnnouncementsCard from '../../components/common/AnnouncementsCard';
 import EnrollmentCard from '../../components/biometric/EnrollmentCard';
 import { dashboardService, attendanceService, payrollService, leaveService, holidayService } from '../../services';
 import { formatCurrency } from '../../lib/format';
-
-const COLORS = ['#5b6ef5', '#a855f7', '#1aab50', '#f5a524', '#ef4444', '#06b6d4'];
+import { CHART_COLORS as COLORS } from '../../lib/constants';
 
 export default function AdminDashboard() {
   const user = useSelector((s) => s.auth.user);

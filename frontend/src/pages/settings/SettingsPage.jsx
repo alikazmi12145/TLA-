@@ -37,10 +37,20 @@ export default function SettingsPage() {
     try {
       const fd = new FormData();
       Object.keys(values).forEach((k) => {
-        if (k === 'logo' || k === 'ceoSignature' || k === 'permissions') return;
+        if (k === 'logo' || k === 'ceoSignature' || k === 'permissions' || k === 'leaveAllotments') return;
         if (values[k] !== undefined && values[k] !== null) fd.append(k, values[k]);
       });
       fd.append('permissions', JSON.stringify(normalizeRolePermissions(values.permissions)));
+      // Nested object — send as JSON so backend can parse it. Coerce
+      // each value to a non-negative number so the field can't be saved
+      // as an empty string / NaN.
+      const allot = values.leaveAllotments || {};
+      const normalizedAllot = ['CASUAL', 'SICK', 'ANNUAL', 'EMERGENCY'].reduce((acc, k) => {
+        const n = Number(allot[k]);
+        acc[k] = Number.isFinite(n) && n >= 0 ? n : 0;
+        return acc;
+      }, {});
+      fd.append('leaveAllotments', JSON.stringify(normalizedAllot));
       if (values.logo && values.logo[0]) fd.append('logo', values.logo[0]);
       if (values.ceoSignature && values.ceoSignature[0]) fd.append('ceoSignature', values.ceoSignature[0]);
       await settingService.update(fd);
@@ -125,6 +135,25 @@ export default function SettingsPage() {
               <TextField type="number" label="Tax %" fullWidth helperText="Applied on gross salary" {...register('taxPercentage', { valueAsNumber: true })} />
               <TextField type="number" label="Payroll closing date" fullWidth helperText="Day of month payroll is locked (1-31)" {...register('payrollClosingDate', { valueAsNumber: true })} />
             </Stack>
+
+            <Divider flexItem />
+            <Typography variant="overline" color="text.secondary">Leave Allotments (per year)</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Yearly quota for each leave type. Consumed by the Leave Balance card on employee dashboards and the /leaves/balance endpoint.
+            </Typography>
+            <Grid container spacing={2}>
+              {['CASUAL', 'SICK', 'ANNUAL', 'EMERGENCY'].map((type) => (
+                <Grid item xs={6} sm={3} key={type}>
+                  <TextField
+                    type="number"
+                    label={`${type} days`}
+                    fullWidth
+                    inputProps={{ min: 0 }}
+                    {...register(`leaveAllotments.${type}`, { valueAsNumber: true })}
+                  />
+                </Grid>
+              ))}
+            </Grid>
 
             <Divider flexItem />
             <Typography variant="overline" color="text.secondary">Role Permissions</Typography>

@@ -20,10 +20,9 @@ import StatCard from '../../components/common/StatCard';
 import PageHeader from '../../components/common/PageHeader';
 import { Empty } from '../../components/common/States';
 import AnnouncementsCard from '../../components/common/AnnouncementsCard';
-import { dashboardService, attendanceService, leaveService, payrollService, targetService } from '../../services';
+import { dashboardService, attendanceService, leaveService, payrollService, targetService, settingService } from '../../services';
 import { formatCurrency, minutesToHours } from '../../lib/format';
-
-const COLORS = ['#1aab50', '#ef4444', '#f5a524', '#a855f7', '#5b6ef5', '#06b6d4'];
+import { CHART_COLORS as COLORS, DEFAULT_LEAVE_ALLOTMENTS, DEFAULT_WORK_HOURS_PER_DAY } from '../../lib/constants';
 
 export default function EmployeeDashboard() {
   const qc = useQueryClient();
@@ -41,12 +40,24 @@ export default function EmployeeDashboard() {
   const { data: balance } = useQuery({ queryKey: ['leave-balance'], queryFn: leaveService.myBalance });
   const { data: payslips } = useQuery({ queryKey: ['my-payroll-mini'], queryFn: payrollService.mine });
   const { data: targets } = useQuery({ queryKey: ['my-targets'], queryFn: targetService.mine });
+  const { data: settingsRes } = useQuery({ queryKey: ['settings-public'], queryFn: settingService.get });
+  const settings = settingsRes?.data || {};
+  const workHoursPerDay = Number(settings.workingHoursPerDay) || DEFAULT_WORK_HOURS_PER_DAY;
 
   const s = summary?.data || {};
   const t = today?.data || null;
 
   const action = async (fn, success) => {
-    try { await fn(); toast.success(success); qc.invalidateQueries(); } catch {}
+    try {
+      await fn();
+      toast.success(success);
+      // Refresh only the queries the clock-in/out actions can invalidate
+      // (today's punch state, month grid, and the summary card values)
+      // instead of nuking the entire React Query cache.
+      qc.invalidateQueries({ queryKey: ['att-today'] });
+      qc.invalidateQueries({ queryKey: ['att-month'] });
+      qc.invalidateQueries({ queryKey: ['dash-employee'] });
+    } catch { /* toast handled by interceptor */ }
   };
 
   const monthData = month?.data || [];
@@ -64,7 +75,7 @@ export default function EmployeeDashboard() {
   })();
 
   const leaveBalance = (() => {
-    const allotments = { CASUAL: 10, SICK: 8, ANNUAL: 14, EMERGENCY: 5 };
+    const allotments = { ...DEFAULT_LEAVE_ALLOTMENTS, ...(settings.leaveAllotments || {}) };
     const used = (balance?.data || []).reduce((acc, b) => ({ ...acc, [b._id]: b.used }), {});
     return Object.entries(allotments).map(([type, total]) => ({
       type,
@@ -93,7 +104,7 @@ export default function EmployeeDashboard() {
     { name: 'Deductions', value: (latestPayroll.lateDeduction || 0) + (latestPayroll.absentDeduction || 0) + (latestPayroll.otherDeductions || 0) },
   ].filter((x) => x.value > 0) : [];
 
-  const targetCompletion = s.dailyTarget ? Math.min(100, ((s.workHours || 0) / 8) * 100) : 0;
+  const targetCompletion = s.dailyTarget ? Math.min(100, ((s.workHours || 0) / workHoursPerDay) * 100) : 0;
 
   const targetData = (targets?.data || []).slice(0, 6).map((tg) => ({
     name: dayjs(tg.periodStart).format('MMM D'),
