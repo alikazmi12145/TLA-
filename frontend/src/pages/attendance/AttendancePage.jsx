@@ -20,6 +20,42 @@ const statusColor = {
 
 const EDITABLE_STATUSES = ['PRESENT', 'LATE', 'ABSENT'];
 
+// One visible row per COMPLETED session. An attendance log represents a
+// fully-closed Device-In → Clock-In → Device-Out → Clock-Out cycle. A
+// session is considered complete only when both `clockIn` and `clockOut`
+// are set — anything less is an in-progress or abandoned shift and must
+// NOT appear in the Attendance Logs.
+//
+// Legacy fallback (synthesising a session from a doc's top-level
+// clockIn/clockOut) has been removed: pre-sessions[] rows never surface
+// as logs. Status-only rows (HOLIDAY / LEAVE / ABSENT with no punches),
+// blank sessions, and partially-completed sessions are all filtered out.
+const isCompletedSession = (s) => !!(s && s.clockIn && s.clockOut);
+
+const expandSessions = (docs) => {
+  const rows = [];
+  if (!Array.isArray(docs)) return rows;
+  for (const a of docs) {
+    const sessions = Array.isArray(a.sessions)
+      ? a.sessions.filter(isCompletedSession)
+      : [];
+    if (sessions.length === 0) continue;
+    sessions.forEach((s, idx) => {
+      rows.push({
+        key: `${a._id}-${s._id || idx}`,
+        doc: a,
+        session: s,
+        sessionIndex: idx,
+        totalSessions: sessions.length,
+        isFirstSession: idx === 0,
+      });
+    });
+  }
+  return rows;
+};
+
+const fmtTime = (v) => (v ? dayjs(v).format('HH:mm') : '—');
+
 export default function AttendancePage() {
   const role = useSelector((s) => s.auth.user?.role);
   const { canAccess } = useSettingsPermissions();
@@ -66,10 +102,12 @@ export default function AttendancePage() {
   });
 
   const hasFilter = filters.date || filters.status || filters.employee;
-  const count = data?.data?.length || 0;
+  const docs = data?.data || [];
+  const rows = expandSessions(docs);
+  const count = rows.length;
   const subtitle = hasFilter
-    ? `${count} record${count === 1 ? '' : 's'} (filtered)`
-    : `${count} record${count === 1 ? '' : 's'} (all time)`;
+    ? `${count} session${count === 1 ? '' : 's'} (filtered)`
+    : `${count} session${count === 1 ? '' : 's'} (all time)`;
 
   return (
     <>
@@ -102,67 +140,89 @@ export default function AttendancePage() {
         </CardContent>
       </Card>
       <Card><CardContent>
-        {isLoading ? <TableSkeleton /> : (data?.data?.length ? (
+        {isLoading ? <TableSkeleton /> : (rows.length ? (
           <Box sx={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left' }}>
                 {[
-                  'Employee', 'Date', 'Status', 'Current', 'Clock In', 'Clock Out', 'Hours', 'Late (m)', 'Method',
+                  'Employee', 'Date', 'Shift', 'Shift Time', 'Session',
+                  'Status', 'Device In', 'Clock In', 'Device Out', 'Clock Out',
+                  'Hours', 'Late (m)', 'Method',
                   ...(isSuperAdmin ? ['Note'] : []),
                 ].map((h) => (
                   <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
-                {data.data.map((a) => {
-                  const isToday = dayjs(a.date).isSame(dayjs(), 'day');
-                  let current = { label: '—', color: 'default' };
-                  if (a.clockIn && a.clockOut) current = { label: 'Done', color: 'default' };
-                  else if (a.clockIn && !a.clockOut) current = { label: isToday ? 'Active' : 'No clock-out', color: isToday ? 'success' : 'warning' };
+                {rows.map(({ key, doc: a, session: s, sessionIndex, totalSessions, isFirstSession }) => {
+                  // The row date is ALWAYS the shift-start day (Rule 1 / 14),
+                  // even when the shift crossed midnight — the backend anchors
+                  // it via resolveShiftAnchorDate at upsert time.
+                  const shift = a.employee?.shift;
+                  const shiftName = shift?.name || '—';
+                  const shiftTime = (shift?.startTime && shift?.endTime)
+                    ? `${shift.startTime} – ${shift.endTime}`
+                    : '—';
+                  const sessionLabel = totalSessions > 1
+                    ? `${sessionIndex + 1} of ${totalSessions}`
+                    : '1';
+                  // Doc-level fields (employee, date, shift, status, method,
+                  // note) are grouped on the first session row so the eye
+                  // can associate later sessions with their parent shift day.
                   return (
-                  <tr key={a._id} style={{ borderBottom: '1px dashed rgba(0,0,0,0.08)' }}>
-                    <td style={{ padding: '10px 8px' }}>{a.employee?.fullName}</td>
-                    <td style={{ padding: '10px 8px' }}>{dayjs(a.date).format('MMM D, YYYY')}</td>
+                  <tr
+                    key={key}
+                    style={{
+                      borderBottom: '1px dashed rgba(0,0,0,0.08)',
+                      background: isFirstSession ? 'transparent' : 'rgba(0,0,0,0.015)',
+                    }}
+                  >
+                    <td style={{ padding: '10px 8px' }}>{isFirstSession ? (a.employee?.fullName || '') : ''}</td>
+                    <td style={{ padding: '10px 8px' }}>{isFirstSession ? dayjs(a.date).format('MMM D, YYYY') : ''}</td>
+                    <td style={{ padding: '10px 8px' }}>{isFirstSession ? shiftName : ''}</td>
+                    <td style={{ padding: '10px 8px', fontSize: 12, opacity: 0.85 }}>{isFirstSession ? shiftTime : ''}</td>
+                    <td style={{ padding: '10px 8px', fontSize: 12, opacity: 0.85 }}>{sessionLabel}</td>
                     <td style={{ padding: '10px 8px' }}>
-                      {canEditStatus ? (
-                        <Select
-                          size="small"
-                          value={EDITABLE_STATUSES.includes(a.status) ? a.status : ''}
-                          displayEmpty
-                          disabled={updateStatus.isPending}
-                          onChange={(e) => updateStatus.mutate({
-                            employee: a.employee?._id || a.employee,
-                            date: a.date,
-                            status: e.target.value,
-                          })}
-                          renderValue={(val) => (
-                            <Chip
-                              size="small"
-                              label={val || a.status || '—'}
-                              color={statusColor[val || a.status] || 'default'}
-                            />
-                          )}
-                          sx={{ minWidth: 120, '& .MuiSelect-select': { py: 0.5 } }}
-                        >
-                          {EDITABLE_STATUSES.map((s) => (
-                            <MenuItem key={s} value={s}>{s}</MenuItem>
-                          ))}
-                        </Select>
-                      ) : (
-                        <Chip size="small" label={a.status} color={statusColor[a.status] || 'default'} />
-                      )}
+                      {isFirstSession ? (
+                        canEditStatus ? (
+                          <Select
+                            size="small"
+                            value={EDITABLE_STATUSES.includes(a.status) ? a.status : ''}
+                            displayEmpty
+                            disabled={updateStatus.isPending}
+                            onChange={(e) => updateStatus.mutate({
+                              employee: a.employee?._id || a.employee,
+                              date: a.date,
+                              status: e.target.value,
+                            })}
+                            renderValue={(val) => (
+                              <Chip
+                                size="small"
+                                label={val || a.status || '—'}
+                                color={statusColor[val || a.status] || 'default'}
+                              />
+                            )}
+                            sx={{ minWidth: 120, '& .MuiSelect-select': { py: 0.5 } }}
+                          >
+                            {EDITABLE_STATUSES.map((st) => (
+                              <MenuItem key={st} value={st}>{st}</MenuItem>
+                            ))}
+                          </Select>
+                        ) : (
+                          <Chip size="small" label={a.status} color={statusColor[a.status] || 'default'} />
+                        )
+                      ) : ''}
                     </td>
-                    <td style={{ padding: '10px 8px' }}>
-                      <Chip size="small" label={current.label} color={current.color} variant={current.color === 'success' ? 'filled' : 'outlined'} />
-                    </td>
-                    <td style={{ padding: '10px 8px' }}>{a.clockIn ? dayjs(a.clockIn).format('HH:mm') : '—'}</td>
-                    <td style={{ padding: '10px 8px' }}>{a.clockOut ? dayjs(a.clockOut).format('HH:mm') : '—'}</td>
-                    <td style={{ padding: '10px 8px' }}>{minutesToHours(a.workMinutes)}</td>
-                    <td style={{ padding: '10px 8px' }}>{a.lateMinutes || 0}</td>
-                    <td style={{ padding: '10px 8px' }}>{a.method}</td>
+                    <td style={{ padding: '10px 8px' }}>{fmtTime(s.deviceCheckInAt)}</td>
+                    <td style={{ padding: '10px 8px' }}>{fmtTime(s.clockIn)}</td>
+                    <td style={{ padding: '10px 8px' }}>{fmtTime(s.deviceCheckOutAt)}</td>
+                    <td style={{ padding: '10px 8px' }}>{fmtTime(s.clockOut)}</td>
+                    <td style={{ padding: '10px 8px' }}>{minutesToHours(s.workMinutes || 0)}</td>
+                    <td style={{ padding: '10px 8px' }}>{s.lateMinutes || 0}</td>
+                    <td style={{ padding: '10px 8px' }}>{isFirstSession ? a.method : ''}</td>
                     {isSuperAdmin && (
                       <td style={{ padding: '10px 8px' }}>
-                        {a.note ? (
+                        {isFirstSession && a.note ? (
                           <Button
                             size="small"
                             variant="outlined"
@@ -172,7 +232,7 @@ export default function AttendancePage() {
                           >
                             Check Note
                           </Button>
-                        ) : <span style={{ opacity: 0.4 }}>—</span>}
+                        ) : <span style={{ opacity: 0.4 }}>{isFirstSession ? '—' : ''}</span>}
                       </td>
                     )}
                   </tr>
