@@ -44,6 +44,35 @@ const resolveShiftAnchorDate = (punchAt, shift, { tailWindowMinutes = 120 } = {}
   return punch.startOf('day').toDate();
 };
 
+/**
+ * Pure lateness calculation shared by the attendance controller and any
+ * verification / reporting utility. Lateness is always measured against
+ * the SHIFT start on the row's anchor date (Rule 11) so overnight shifts
+ * — where the clock-in day may differ from the shift-start day — are
+ * evaluated against the correct scheduled start.
+ *
+ *  @param {{ startTime: string, graceMinutes?: number }} shift
+ *  @param {Date|string} clockIn      actual clock-in moment
+ *  @param {Date|string} [anchorDate] attendance row's shift-start day;
+ *                                    falls back to startOf(clockIn day)
+ *                                    for legacy day shifts.
+ *  @returns {{ isLate: boolean, lateMinutes: number }}
+ */
+const evaluateShiftLateness = (shift, clockIn, anchorDate) => {
+  if (!shift || !shift.startTime) return { isLate: false, lateMinutes: 0 };
+  const [h, m] = String(shift.startTime).split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) {
+    return { isLate: false, lateMinutes: 0 };
+  }
+  const referenceDay = anchorDate ? dayjs(anchorDate) : dayjs(clockIn).startOf('day');
+  const expected = referenceDay.startOf('day').hour(h).minute(m).second(0);
+  const lateMinutes = Math.max(
+    0,
+    dayjs(clockIn).diff(expected, 'minute') - (Number(shift.graceMinutes) || 0)
+  );
+  return { isLate: lateMinutes > 0, lateMinutes };
+};
+
 module.exports = {
   startOfDay,
   endOfDay,
@@ -51,4 +80,5 @@ module.exports = {
   endOfMonth,
   diffMinutes,
   resolveShiftAnchorDate,
+  evaluateShiftLateness,
 };

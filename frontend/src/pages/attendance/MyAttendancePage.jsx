@@ -12,7 +12,7 @@ const statusColor = { PRESENT: 'success', LATE: 'warning', ABSENT: 'error', LEAV
 
 // One visible row per COMPLETED session. Attendance logs only exist for
 // fully-closed Device-In → Clock-In → Device-Out → Clock-Out cycles.
-// Partial, blank, or legacy pre-sessions[] rows are never rendered.
+// Partial, blank, in-progress or legacy pre-sessions[] rows are never rendered.
 const isCompletedSession = (s) => !!(s && s.clockIn && s.clockOut);
 
 const expandSessions = (docs) => {

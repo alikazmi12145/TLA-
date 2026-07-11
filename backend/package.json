@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed": "node src/seeders/index.js"
+    "seed": "node src/seeders/index.js",
+    "verify:shifts": "node src/scripts/verify-shift-anchoring.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

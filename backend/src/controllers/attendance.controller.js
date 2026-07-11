@@ -9,6 +9,7 @@ const {
   endOfMonth,
   diffMinutes,
   resolveShiftAnchorDate,
+  evaluateShiftLateness,
 } = require('../utils/date');
 const Attendance = require('../models/Attendance');
 const User = require('../models/User');
@@ -119,17 +120,10 @@ const computeWorkMinutes = (a) => {
 
 const evaluateLate = async (employeeId, clockIn, anchorDate) => {
   const user = await User.findById(employeeId).populate('shift');
-  if (!user || !user.shift || !user.shift.startTime) return { isLate: false, lateMinutes: 0 };
-  const [h, m] = user.shift.startTime.split(':').map(Number);
-  // Rule 11: lateness is measured against the SHIFT start on the row's
-  // anchor date — not the clock-in day. This matters for overnight shifts
-  // where the shift starts on day N (e.g. 22:00) but the clock-in may fall
-  // on day N+1 (e.g. 01:00): using `startOf(clockIn day)` would compare
-  // against the wrong midnight boundary.
-  const referenceDay = anchorDate ? dayjs(anchorDate) : dayjs(clockIn).startOf('day');
-  const expected = referenceDay.startOf('day').hour(h).minute(m).second(0);
-  const lateMinutes = Math.max(0, dayjs(clockIn).diff(expected, 'minute') - (user.shift.graceMinutes || 0));
-  return { isLate: lateMinutes > 0, lateMinutes };
+  if (!user || !user.shift) return { isLate: false, lateMinutes: 0 };
+  // Delegate to the shared pure helper (also used by verify-shift-anchoring.js)
+  // so lateness rules stay in one place — Rule 11.
+  return evaluateShiftLateness(user.shift, clockIn, anchorDate);
 };
 
 // Locate the row + last-session index the web Clock In button should act on.
