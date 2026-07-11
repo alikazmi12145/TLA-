@@ -25,9 +25,15 @@
  */
 const logger = require('../utils/logger');
 const { CHECK_TYPE, VERIFICATION_MODE, DEVICE_CONN_TYPE } = require('../config/constants');
+const { patchZKLibInstance } = require('./zklib-safe');
+
+// Bump the global EventEmitter cap. node-zklib attaches multiple
+// short-lived listeners per request; the default of 10 produces spurious
+// MaxListenersExceededWarning noise even on healthy sockets.
+require('events').EventEmitter.defaultMaxListeners = 50;
 
 const MOCK = String(process.env.BIOMETRIC_MOCK || '').toLowerCase() === 'true';
-const DEFAULT_TIMEOUT = Number(process.env.BIOMETRIC_TIMEOUT_MS || 5000);
+const DEFAULT_TIMEOUT = Number(process.env.BIOMETRIC_TIMEOUT_MS || 8000);
 
 // ZK protocol command codes used directly (node-zklib doesn't expose setUser).
 const CMD = {
@@ -92,10 +98,79 @@ const loadZK = () => {
 };
 
 // ------------------------------------------------------------------
-// Connection cache — one live handle per device (keyed by ip:port).
+// Connection cache — exactly ONE live socket per device (keyed by ip:port).
+//
+// `state` maps `ip:port` -> {
+//   zk: ZKLib | null           // the live driver instance
+//   alive: boolean             // false as soon as the socket dies for any reason
+//   chain: Promise             // per-device operation queue (serialises calls)
+//   consecutiveFailures: number
+//   backoffUntil: number       // epoch ms; ensureConnected refuses to dial before this
+// }
+//
+// This is the single source of truth for biometric sockets. Every op goes
+// through `exec()` which acquires the queue, ensures the connection is
+// healthy, runs the op with a timeout, and tears the socket down on any
+// error so the very next call reconnects cleanly. There is no path in this
+// module that creates a socket outside of `ensureConnected`.
 // ------------------------------------------------------------------
-const handles = new Map();
+const state = new Map();
 const keyOf = (device) => `${device.ip}:${device.port}`;
+const stateFor = (device) => {
+  const k = keyOf(device);
+  let s = state.get(k);
+  if (!s) {
+    s = {
+      zk: null,
+      alive: false,
+      chain: Promise.resolve(),
+      consecutiveFailures: 0,
+      backoffUntil: 0,
+    };
+    state.set(k, s);
+  }
+  return s;
+};
+
+const perfLog = (ok, device, op, ms, errMsg) => {
+  const label = device.name || 'device';
+  const line = `[biometric][${device.ip}][${label}] ${op} ${ok ? 'OK' : 'FAIL'} in ${ms}ms${errMsg ? ` :: ${errMsg}` : ''}`;
+  if (ok) logger.info(line);
+  else logger.warn(line);
+};
+
+const tearDown = (device, reason) => {
+  const s = stateFor(device);
+  const zk = s.zk;
+  s.zk = null;
+  s.alive = false;
+  if (!zk || zk.mock) return;
+  // Yank the underlying sockets ourselves so no dangling `data`/`close`
+  // listeners survive a failed operation. node-zklib.disconnect() is best
+  // effort — we don't await it because a dead socket can hang the .end()
+  // callback for the full timeout window (which is exactly what created
+  // the polling backpressure in the first place).
+  try {
+    if (zk.zklibTcp && zk.zklibTcp.socket) {
+      try { zk.zklibTcp.socket.removeAllListeners(); } catch { /* ignore */ }
+      try { zk.zklibTcp.socket.destroy(); } catch { /* ignore */ }
+      zk.zklibTcp.socket = null;
+    }
+    if (zk.zklibUdp && zk.zklibUdp.socket) {
+      try { zk.zklibUdp.socket.removeAllListeners(); } catch { /* ignore */ }
+      try { zk.zklibUdp.socket.close(); } catch { /* ignore */ }
+      zk.zklibUdp.socket = null;
+    }
+  } catch { /* ignore */ }
+  if (reason) {
+    logger.warn(`[biometric] tore down ${keyOf(device)}: ${reason}`);
+  }
+};
+
+const isTransient = (err) => {
+  const m = err && err.message ? err.message : String(err || '');
+  return /DEVICE_RETURNED_INVALID_PACKET|SOCKET_NOT_CONNECTED|TIMEOUT|Timeout after|ECONNRESET|EPIPE|ETIMEDOUT|EHOSTUNREACH/i.test(m);
+};
 
 // ------------------------------------------------------------------
 // Mock in-memory device (used when BIOMETRIC_MOCK=true).
@@ -160,15 +235,23 @@ const requireDevice = (device) => {
 // Public API
 // ==================================================================
 
-/** Open (or reuse) a live connection to the given device. */
-const connect = async (device) => {
-  requireDevice(device);
-  const key = keyOf(device);
-  if (handles.has(key)) return handles.get(key);
+/**
+ * Ensure the given device has an alive ZKLib handle and return it.
+ * Never called outside `exec()` — do not export.
+ */
+const ensureConnected = async (device) => {
+  const s = stateFor(device);
+  if (s.zk && s.alive) return s.zk;
+
+  if (Date.now() < s.backoffUntil) {
+    const waitMs = s.backoffUntil - Date.now();
+    throw new Error(`Device ${keyOf(device)} in backoff for ${waitMs}ms after ${s.consecutiveFailures} failure(s)`);
+  }
 
   if (MOCK) {
     const handle = { mock: true, device };
-    handles.set(key, handle);
+    s.zk = handle;
+    s.alive = true;
     return handle;
   }
 
@@ -177,42 +260,137 @@ const connect = async (device) => {
 
   const useUdp = device.connectionType === DEVICE_CONN_TYPE.UDP;
   const zk = new Lib(device.ip, device.port, DEFAULT_TIMEOUT, useUdp ? device.inport || 5200 : 4000);
-  await withTimeout(zk.createSocket(), DEFAULT_TIMEOUT, 'connect');
-  handles.set(key, zk);
+  // Apply the memory-safety patch BEFORE the first createSocket, so the
+  // socket comes up with `setMaxListeners(50)` and the null-reply guard
+  // is in place for the very first request.
+  patchZKLibInstance(zk);
+
+  const start = Date.now();
+  try {
+    await withTimeout(
+      zk.createSocket(
+        // cbError: socket-level error — mark the handle dead so the next
+        // exec() call rebuilds it. Never crash the process.
+        (err) => {
+          s.alive = false;
+          logger.warn(`[biometric] socket error ${keyOf(device)}: ${err && err.message ? err.message : err}`);
+        },
+        // cbClose: mark dead on remote/local close.
+        () => { s.alive = false; }
+      ),
+      DEFAULT_TIMEOUT,
+      'createSocket'
+    );
+  } catch (err) {
+    s.consecutiveFailures += 1;
+    // Exponential backoff: 2s → 4s → 8s → 16s → 32s → cap 60s.
+    const delay = Math.min(60_000, 2_000 * (2 ** Math.min(5, s.consecutiveFailures - 1)));
+    s.backoffUntil = Date.now() + delay;
+    tearDown(device, `createSocket failed: ${err.message}`);
+    perfLog(false, device, 'connect', Date.now() - start, err.message);
+    throw err;
+  }
+  s.zk = zk;
+  s.alive = true;
+  s.consecutiveFailures = 0;
+  s.backoffUntil = 0;
+  perfLog(true, device, 'connect', Date.now() - start);
   return zk;
 };
 
-/** Gracefully close the socket to a device. */
+/**
+ * Serialised, self-healing biometric operation runner.
+ *
+ * Every public op goes through `exec()`. It guarantees:
+ *   1. Only one op at a time per device (per-device promise chain), so
+ *      concurrent callers can never corrupt each other's reply streams.
+ *   2. A single live socket is reused across ops (huge perf win, and the
+ *      root fix for MaxListenersExceededWarning — we no longer open a new
+ *      socket per polling cycle).
+ *   3. A hard timeout, so a dead device can never block the queue.
+ *   4. On ANY error the socket is torn down and the next op reconnects
+ *      cleanly. Transient errors are retried once with a fresh socket.
+ *   5. Structured logging: timestamp / IP / device name / op / ms / result.
+ */
+const exec = async (device, opName, timeoutMs, fn, { retry = true } = {}) => {
+  requireDevice(device);
+  const s = stateFor(device);
+  const attempt = async (isRetry) => {
+    const start = Date.now();
+    let handle;
+    try {
+      handle = await ensureConnected(device);
+    } catch (err) {
+      perfLog(false, device, `${opName}${isRetry ? ' (retry)' : ''}`, Date.now() - start, err.message);
+      throw err;
+    }
+    try {
+      const val = await withTimeout(Promise.resolve().then(() => fn(handle)), timeoutMs, opName);
+      perfLog(true, device, `${opName}${isRetry ? ' (retry)' : ''}`, Date.now() - start);
+      s.consecutiveFailures = 0;
+      return val;
+    } catch (err) {
+      perfLog(false, device, `${opName}${isRetry ? ' (retry)' : ''}`, Date.now() - start, err.message);
+      tearDown(device, `${opName}: ${err.message}`);
+      throw err;
+    }
+  };
+
+  const run = async () => {
+    try {
+      return await attempt(false);
+    } catch (err) {
+      if (retry && isTransient(err)) {
+        // One retry after a clean tear-down. Enough to recover from the
+        // classic `subarray of null` / short packet cases without letting
+        // a truly-dead device spin.
+        return attempt(true);
+      }
+      throw err;
+    }
+  };
+
+  // Queue on the per-device chain. The chain itself must never reject or
+  // subsequent ops would inherit the failure, so we swallow errors on the
+  // stored promise and only propagate them to the immediate caller.
+  const next = s.chain.then(run, run);
+  s.chain = next.then(
+    () => undefined,
+    () => undefined
+  );
+  return next;
+};
+
+/** Open (or reuse) a live connection to the given device. */
+const connect = (device) => exec(device, 'connect', DEFAULT_TIMEOUT, async (h) => h);
+
+/** Gracefully close the socket to a device. Always safe to call. */
 const disconnect = async (device) => {
   requireDevice(device);
-  const key = keyOf(device);
-  const handle = handles.get(key);
-  handles.delete(key);
-  if (!handle || handle.mock) return;
-  try {
-    await handle.disconnect();
-  } catch (err) {
-    logger.warn(`[biometric] disconnect(${key}) failed: ${err.message}`);
-  }
+  const s = stateFor(device);
+  // Wait for any in-flight op on this device to settle before tearing down,
+  // otherwise the in-flight op could see its socket vanish mid-request.
+  try { await s.chain; } catch { /* ignore prior op failures */ }
+  tearDown(device, 'explicit disconnect');
 };
 
 /** Lightweight liveness probe. Returns { ok, latencyMs, error? }. */
 const ping = async (device) => {
   const start = Date.now();
   try {
-    const handle = await connect(device);
-    if (handle.mock) return { ok: true, latencyMs: Date.now() - start };
-    // getInfo is the cheapest useful call on the ZK protocol.
-    await withTimeout(handle.getInfo(), DEFAULT_TIMEOUT, 'ping');
+    await exec(device, 'ping', DEFAULT_TIMEOUT, async (h) => {
+      if (h.mock) return true;
+      // getInfo is the cheapest useful call on the ZK protocol.
+      return h.getInfo();
+    });
     return { ok: true, latencyMs: Date.now() - start };
   } catch (err) {
     return { ok: false, latencyMs: Date.now() - start, error: err.message };
   }
 };
 
-const getInfo = async (device) => {
-  const handle = await connect(device);
-  if (handle.mock) {
+const getInfo = async (device) => exec(device, 'getInfo', DEFAULT_TIMEOUT, async (h) => {
+  if (h.mock) {
     const m = getMock(device);
     return {
       userCount: m.users.size,
@@ -222,7 +400,7 @@ const getInfo = async (device) => {
       serialNumber: m.serial,
     };
   }
-  const info = await withTimeout(handle.getInfo(), DEFAULT_TIMEOUT, 'getInfo');
+  const info = await h.getInfo();
   return {
     userCount: info?.userCounts ?? info?.userCount ?? 0,
     fingerCount: info?.fingerCounts ?? info?.fingerCount ?? 0,
@@ -230,7 +408,7 @@ const getInfo = async (device) => {
     firmware: undefined,
     serialNumber: undefined,
   };
-};
+});
 
 /**
  * Push a user to the device via CMD_USER_WRQ.
@@ -239,112 +417,109 @@ const getInfo = async (device) => {
 const createUser = async (device, { uid, userId, name, privilege = 0, password = '' }) => {
   if (!uid) throw new Error('uid required');
   if (!userId) throw new Error('userId required');
-  const handle = await connect(device);
   const safeName = String(name || '').slice(0, 24);
   const safePwd = String(password || '').slice(0, 8);
 
-  if (handle.mock) {
-    const m = getMock(device);
-    m.users.set(String(uid), {
+  return exec(device, 'createUser', DEFAULT_TIMEOUT, async (h) => {
+    if (h.mock) {
+      const m = getMock(device);
+      m.users.set(String(uid), {
+        uid: Number(uid),
+        userId: String(userId),
+        name: safeName,
+        role: privilege,
+        password: safePwd,
+        fingerCount: 0,
+        enabled: true,
+      });
+      return;
+    }
+    const payload = buildUserPayload({
       uid: Number(uid),
       userId: String(userId),
       name: safeName,
-      role: privilege,
+      privilege: Number(privilege) || 0,
       password: safePwd,
-      fingerCount: 0,
-      enabled: true,
     });
-    return;
-  }
-  const payload = buildUserPayload({
-    uid: Number(uid),
-    userId: String(userId),
-    name: safeName,
-    privilege: Number(privilege) || 0,
-    password: safePwd,
+    await h.executeCmd(CMD.USER_WRQ, payload);
+    // Ask the device to refresh its data cache so the new user is visible immediately.
+    try { await h.executeCmd(CMD.REFRESHDATA, ''); } catch { /* refresh is optional */ }
   });
-  await withTimeout(handle.executeCmd(CMD.USER_WRQ, payload), DEFAULT_TIMEOUT, 'CMD_USER_WRQ');
-  // Ask the device to refresh its data cache so the new user is visible immediately.
-  try {
-    await withTimeout(handle.executeCmd(CMD.REFRESHDATA, ''), DEFAULT_TIMEOUT, 'CMD_REFRESHDATA');
-  } catch { /* refresh is optional */ }
 };
 
 /** Update = same as create on ZK devices (CMD_USER_WRQ overwrites by uid). */
 const updateUser = (device, user) => createUser(device, user);
 
-const deleteUser = async (device, uid) => {
-  const handle = await connect(device);
-  if (handle.mock) {
+const deleteUser = async (device, uid) => exec(device, 'deleteUser', DEFAULT_TIMEOUT, async (h) => {
+  if (h.mock) {
     getMock(device).users.delete(String(uid));
     return;
   }
   const buf = Buffer.alloc(2);
   buf.writeUInt16LE(Number(uid) & 0xffff, 0);
-  await withTimeout(handle.executeCmd(CMD.DELETE_USER, buf), DEFAULT_TIMEOUT, 'CMD_DELETE_USER');
-  try {
-    await withTimeout(handle.executeCmd(CMD.REFRESHDATA, ''), DEFAULT_TIMEOUT, 'CMD_REFRESHDATA');
-  } catch { /* optional */ }
-};
+  await h.executeCmd(CMD.DELETE_USER, buf);
+  try { await h.executeCmd(CMD.REFRESHDATA, ''); } catch { /* optional */ }
+});
 
 // ZKTeco K40 has no direct per-user enable/disable command via CMD_USER_WRQ.
 // The pragmatic pattern is: enable = re-push the record, disable = delete it
 // from the device (Mongo record stays). Callers can pass the full user info
 // via `enableUser(device, userLike)` when they have it.
 const enableUser = async (device, userLike) => {
-  const handle = await connect(device);
-  if (handle.mock) {
-    if (typeof userLike === 'object' && userLike?.uid) {
-      const u = getMock(device).users.get(String(userLike.uid));
-      if (u) u.enabled = true;
-    }
-    return;
+  if (MOCK) {
+    return exec(device, 'enableUser', DEFAULT_TIMEOUT, async () => {
+      if (typeof userLike === 'object' && userLike?.uid) {
+        const u = getMock(device).users.get(String(userLike.uid));
+        if (u) u.enabled = true;
+      }
+    });
   }
   if (typeof userLike === 'object' && userLike?.uid && userLike?.userId) {
     return createUser(device, userLike);
   }
   logger.warn('[biometric] enableUser called without full user info — skipping (K40 has no per-user enable cmd).');
+  return undefined;
 };
 
 const disableUser = async (device, uid) => {
-  const handle = await connect(device);
-  if (handle.mock) {
-    const u = getMock(device).users.get(String(uid));
-    if (u) u.enabled = false;
-    return;
+  if (MOCK) {
+    return exec(device, 'disableUser', DEFAULT_TIMEOUT, async () => {
+      const u = getMock(device).users.get(String(uid));
+      if (u) u.enabled = false;
+    });
   }
   return deleteUser(device, uid);
 };
 
-/** Read the enrolled user roster back from the device. */
+/** Read the enrolled user roster back from the device. Non-throwing: returns [] on failure. */
 const getUsers = async (device) => {
-  const handle = await connect(device);
-  if (handle.mock) {
-    return [...getMock(device).users.values()].map((u) => ({
-      uid: u.uid,
-      userId: u.userId,
-      name: u.name,
-      role: u.role,
-      fingerCount: u.fingerCount,
-    }));
-  }
-  let res;
   try {
-    res = await withTimeout(handle.getUsers(), DEFAULT_TIMEOUT * 2, 'getUsers');
+    return await exec(device, 'getUsers', DEFAULT_TIMEOUT * 2, async (h) => {
+      if (h.mock) {
+        return [...getMock(device).users.values()].map((u) => ({
+          uid: u.uid,
+          userId: u.userId,
+          name: u.name,
+          role: u.role,
+          fingerCount: u.fingerCount,
+        }));
+      }
+      const res = await h.getUsers();
+      const list = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+      return list
+        .filter((u) => u && (u.uid != null || u.userId != null))
+        .map((u) => ({
+          uid: u.uid,
+          userId: String(u.userId || u.user_id || u.uid),
+          name: u.name,
+          role: u.role ?? u.privilege ?? 0,
+          fingerCount: Number(u.fingerCount ?? u.templates ?? 0),
+        }));
+    });
   } catch (err) {
     logger.warn(`[biometric] getUsers(${keyOf(device)}) failed: ${err.message}`);
     return [];
   }
-  const list = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
-  return list
-    .filter((u) => u && (u.uid != null || u.userId != null))
-    .map((u) => ({
-      uid: u.uid,
-      userId: String(u.userId || u.user_id || u.uid),
-      name: u.name,
-      role: u.role ?? u.privilege ?? 0,
-      fingerCount: Number(u.fingerCount ?? u.templates ?? 0),
-    }));
 };
 
 /**
@@ -355,9 +530,8 @@ const getUsers = async (device) => {
  * We use a short per-probe timeout because "template not present" is often
  * reported as a socket timeout by the K40 rather than an error response.
  */
-const getUserFingerCount = async (device, uid) => {
-  const handle = await connect(device);
-  if (handle.mock) {
+const getUserFingerCount = async (device, uid) => exec(device, `getUserFingerCount(${uid})`, DEFAULT_TIMEOUT * 3, async (h) => {
+  if (h.mock) {
     const u = getMock(device).users.get(String(uid));
     return u ? Number(u.fingerCount || 0) : 0;
   }
@@ -368,20 +542,20 @@ const getUserFingerCount = async (device, uid) => {
     buf.writeUInt8(finger, 2);
     buf.writeUInt8(0, 3);
     try {
+      // eslint-disable-next-line no-await-in-loop
       const res = await withTimeout(
-        handle.executeCmd(CMD.USERTEMP_RRQ, buf),
-        Math.min(DEFAULT_TIMEOUT, 1500),
+        h.executeCmd(CMD.USERTEMP_RRQ, buf),
+        1500,
         `USERTEMP_RRQ(uid=${uid},f=${finger})`
       );
-      // Any non-empty template payload means this finger slot is enrolled.
       if (res && Buffer.isBuffer(res) && res.length > 0) count += 1;
-      else if (res && !Buffer.isBuffer(res)) count += 1; // some libs return true/object
+      else if (res && !Buffer.isBuffer(res)) count += 1;
     } catch {
       // No template at this slot — keep scanning.
     }
   }
   return count;
-};
+}, { retry: false });
 
 const CHECK_TYPE_MAP = {
   0: CHECK_TYPE.CHECK_IN,
@@ -398,53 +572,52 @@ const VERIFY_MAP = {
   15: VERIFICATION_MODE.FACE,
 };
 
-/** Read attendance punches from the device. */
+/** Read attendance punches from the device. Non-throwing: returns [] on failure. */
 const getAttendance = async (device) => {
-  const handle = await connect(device);
-  if (handle.mock) {
-    return getMock(device).logs.map((l) => ({ ...l }));
-  }
-  let res;
   try {
-    res = await withTimeout(handle.getAttendances(), DEFAULT_TIMEOUT * 3, 'getAttendances');
+    return await exec(device, 'getAttendances', DEFAULT_TIMEOUT * 3, async (h) => {
+      if (h.mock) return getMock(device).logs.map((l) => ({ ...l }));
+      const res = await h.getAttendances();
+      const list = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+      return list
+        .filter((row) => row && (row.deviceUserId ?? row.userId ?? row.user_id ?? row.uid) != null)
+        .map((row) => ({
+          deviceUserId: String(row.deviceUserId ?? row.userId ?? row.user_id ?? row.uid),
+          timestamp: new Date(row.recordTime ?? row.timestamp ?? row.time),
+          checkType: CHECK_TYPE_MAP[Number(row.type ?? row.state)] || CHECK_TYPE.CHECK_IN,
+          verificationMode:
+            VERIFY_MAP[Number(row.verifyMode ?? row.verified ?? 1)] || VERIFICATION_MODE.FINGERPRINT,
+        }));
+    });
   } catch (err) {
     logger.warn(`[biometric] getAttendances(${keyOf(device)}) failed: ${err.message}`);
     return [];
   }
-  const list = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
-  return list
-    .filter((row) => row && (row.deviceUserId ?? row.userId ?? row.user_id ?? row.uid) != null)
-    .map((row) => ({
-      deviceUserId: String(row.deviceUserId ?? row.userId ?? row.user_id ?? row.uid),
-      timestamp: new Date(row.recordTime ?? row.timestamp ?? row.time),
-      checkType: CHECK_TYPE_MAP[Number(row.type ?? row.state)] || CHECK_TYPE.CHECK_IN,
-      verificationMode:
-        VERIFY_MAP[Number(row.verifyMode ?? row.verified ?? 1)] || VERIFICATION_MODE.FINGERPRINT,
-    }));
 };
 
-const clearAttendance = async (device) => {
-  const handle = await connect(device);
-  if (handle.mock) {
+const clearAttendance = async (device) => exec(device, 'clearAttendance', DEFAULT_TIMEOUT, async (h) => {
+  if (h.mock) {
     getMock(device).logs = [];
     return;
   }
-  if (typeof handle.clearAttendanceLog === 'function') {
-    await withTimeout(handle.clearAttendanceLog(), DEFAULT_TIMEOUT, 'clearAttendanceLog');
+  if (typeof h.clearAttendanceLog === 'function') {
+    await h.clearAttendanceLog();
   }
-};
+});
 
 const restart = async (device) => {
-  const handle = await connect(device);
-  if (handle.mock) return;
   try {
-    await withTimeout(handle.executeCmd(CMD.RESTART, ''), DEFAULT_TIMEOUT, 'restart');
+    await exec(device, 'restart', DEFAULT_TIMEOUT, async (h) => {
+      if (h.mock) return;
+      await h.executeCmd(CMD.RESTART, '');
+    }, { retry: false });
   } catch (err) {
     // A restart typically closes the socket while we're still waiting on ACK,
     // which the library surfaces as an error. Treat that as success.
     logger.warn(`[biometric] restart(${keyOf(device)}): ${err.message} (ignored)`);
   }
-  handles.delete(keyOf(device));
+  // Force a fresh connection on the next op.
+  tearDown({ ip: device.ip, port: device.port }, 'post-restart teardown');
 };
 
 // Test helper (used by tests only): inject a punch into the mock device.

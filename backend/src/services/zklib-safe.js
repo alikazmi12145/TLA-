@@ -1,0 +1,160 @@
+/**
+ * Defensive wrapper / patcher for node-zklib.
+ *
+ * node-zklib (as of the version pinned in package.json) has two production
+ * defects that surface as random crashes on a long-running VPS:
+ *
+ *   1) `zklibtcp.js#readWithBuffer` continues executing after `requestData`
+ *      rejects — so the next line does `reply.subarray(0, 16)` on `null`
+ *      and throws `TypeError: Cannot read properties of null (reading
+ *      'subarray')`. Because the throw happens inside an `async` Promise
+ *      executor after an `await`, it becomes an unhandledRejection that
+ *      can kill PM2 workers.
+ *
+ *   2) `zklibtcp.js#requestData` attaches a `'data'` listener on the socket
+ *      and only removes it on the SUCCESS path (inside `internalCallback`).
+ *      Every timeout / error path leaks that listener AND its captured
+ *      `replyBuffer` closure — that is the `MaxListenersExceededWarning`
+ *      and the slow VPS memory growth (each failed `getUsers` /
+ *      `getAttendances` leaks a listener + a Buffer chain).
+ *
+ * We fix both by monkey-patching the specific ZKLibTCP instance we build
+ * for each device (never `node_modules` on disk). The patches are 100 %
+ * behaviour-compatible on the success path; on the failure path they
+ * clean up listeners and translate the null-reply case into a normal
+ * rejection instead of a hard crash.
+ */
+
+// eslint-disable-next-line import/no-unresolved
+const { COMMANDS } = require('node-zklib/constants');
+// eslint-disable-next-line import/no-unresolved
+const {
+  createTCPHeader,
+  decodeTCPHeader,
+  checkNotEventTCP,
+} = require('node-zklib/utils');
+
+const PATCHED = Symbol.for('tla.zklib.patched');
+
+/**
+ * Patch a live ZKLib instance so its TCP transport is memory-safe.
+ * Safe to call multiple times — no-ops after the first application.
+ */
+function patchZKLibInstance(zk) {
+  if (!zk || !zk.zklibTcp || zk.zklibTcp[PATCHED]) return zk;
+  const tcp = zk.zklibTcp;
+  tcp[PATCHED] = true;
+
+  // ---- replacement for requestData: always removes the data listener ----
+  tcp.requestData = function requestDataSafe(msg) {
+    return new Promise((resolve, reject) => {
+      const socket = this.socket;
+      if (!socket || socket.destroyed) {
+        reject(new Error('SOCKET_NOT_CONNECTED'));
+        return;
+      }
+
+      let replyBuffer = Buffer.from([]);
+      let timer = null;
+      let settled = false;
+
+      const cleanup = () => {
+        if (timer) { clearTimeout(timer); timer = null; }
+        // Guard: socket may already be nulled by 'close' handler.
+        try { socket.removeListener('data', handleOnData); } catch { /* ignore */ }
+      };
+      const done = (err, val) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (err) reject(err); else resolve(val);
+      };
+
+      const finalizeSoon = () => {
+        // Small settle delay so the last chunk of CMD_DATA can arrive.
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => done(null, replyBuffer), 1000);
+      };
+
+      function handleOnData(data) {
+        try {
+          if (!Buffer.isBuffer(data) || data.length === 0) return;
+          replyBuffer = Buffer.concat([replyBuffer, data]);
+          if (checkNotEventTCP(data)) return;
+          if (replyBuffer.length < 16) return;
+
+          if (timer) { clearTimeout(timer); timer = null; }
+          const header = decodeTCPHeader(replyBuffer.subarray(0, 16));
+          if (header.commandId === COMMANDS.CMD_DATA) {
+            finalizeSoon();
+          } else {
+            timer = setTimeout(
+              () => done(new Error('TIMEOUT_ON_RECEIVING_REQUEST_DATA')),
+              this.timeout || 5000
+            );
+            const packetLength = data.readUIntLE(4, 2);
+            if (packetLength > 8) done(null, data);
+          }
+        } catch (err) {
+          done(err instanceof Error ? err : new Error(String(err)));
+        }
+      }
+
+      socket.on('data', handleOnData);
+
+      socket.write(msg, null, (err) => {
+        if (err) { done(err); return; }
+        timer = setTimeout(
+          () => done(new Error('TIMEOUT_IN_RECEIVING_RESPONSE_AFTER_REQUESTING_DATA')),
+          this.timeout || 5000
+        );
+      });
+    });
+  };
+
+  // ---- guard readWithBuffer against null / short reply from requestData ----
+  const originalReadWithBuffer = tcp.readWithBuffer.bind(tcp);
+  tcp.readWithBuffer = async function readWithBufferSafe(reqData, cb = null) {
+    // We call the original implementation but pre-emptively verify the
+    // socket state — the original has a code path where it rejects and
+    // then continues to `reply.subarray(...)` on `null`. That path only
+    // triggers when `requestData` rejects, so we detect obvious dead-socket
+    // conditions first (cheapest fix), then still wrap the call so any
+    // synchronous TypeError becomes a normal rejection.
+    if (!this.socket || this.socket.destroyed) {
+      throw new Error('SOCKET_NOT_CONNECTED');
+    }
+    try {
+      const result = await originalReadWithBuffer(reqData, cb);
+      return result;
+    } catch (err) {
+      // Normalise the node-zklib "subarray of null" TypeError so callers
+      // see a clean, retryable message rather than a crash-shaped error.
+      if (
+        err &&
+        err.message &&
+        err.message.includes("reading 'subarray'")
+      ) {
+        throw new Error('DEVICE_RETURNED_INVALID_PACKET');
+      }
+      throw err;
+    }
+  };
+
+  // Prevent EventEmitter warnings on the underlying socket. node-zklib's
+  // getUsers/getAttendance internally attach several one-shot listeners on
+  // the same socket during a single request; the default limit of 10 is
+  // easy to hit on slow devices.
+  const originalCreateSocket = tcp.createSocket.bind(tcp);
+  tcp.createSocket = async function createSocketSafe(cbError, cbClose) {
+    const result = await originalCreateSocket(cbError, cbClose);
+    if (this.socket && typeof this.socket.setMaxListeners === 'function') {
+      this.socket.setMaxListeners(50);
+    }
+    return result;
+  };
+
+  return zk;
+}
+
+module.exports = { patchZKLibInstance };
