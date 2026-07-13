@@ -52,8 +52,72 @@ if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 // regardless of the process CWD (matters under PM2 / systemd).
 app.use('/uploads', express.static(uploadDir));
 
+// -----------------------------------------------------------------
 // Health check — never rate-limited, never authenticated.
-app.get('/health', (_req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+//
+// Two flavours:
+//   GET /health           → liveness probe (200 as long as the process
+//                           is up). Cheap enough for k8s / PM2 to hit
+//                           every second without touching Mongo.
+//   GET /health/status    → readiness probe. Reports Mongo connection
+//                           state, socket.io connected clients, and
+//                           per-device biometric health. Also returns
+//                           process uptime + rss memory for dashboards.
+// Both never log any request-scoped user data and never rate-limit.
+// -----------------------------------------------------------------
+const mongoose = require('mongoose');
+app.get('/health', (_req, res) => {
+  const ok = mongoose.connection.readyState === 1; // 1 = connected
+  res
+    .status(ok ? 200 : 503)
+    .json({ status: ok ? 'ok' : 'degraded', time: new Date().toISOString() });
+});
+
+app.get('/health/status', async (_req, res) => {
+  // Lazy-require so cyclic loads never break liveness.
+  // eslint-disable-next-line global-require
+  const Device = require('./models/Device');
+  // eslint-disable-next-line global-require
+  const realtime = require('./services/realtime.service');
+
+  const mongoState = ['disconnected', 'connected', 'connecting', 'disconnecting'][
+    mongoose.connection.readyState
+  ] || 'unknown';
+  const mongoOk = mongoose.connection.readyState === 1;
+
+  let devices = [];
+  try {
+    devices = await Device.find({ enabled: true })
+      .select('name ip online status lastSeen lastLatency averageLatency failureCount')
+      .lean();
+  } catch { /* mongo down → empty list */ }
+
+  const mem = process.memoryUsage();
+  const overallOk = mongoOk && devices.every((d) => d.online !== false);
+
+  res.status(overallOk ? 200 : 503).json({
+    status: overallOk ? 'ok' : 'degraded',
+    time: new Date().toISOString(),
+    uptimeSec: Math.round(process.uptime()),
+    mongo: { state: mongoState, ok: mongoOk },
+    realtime: realtime.getStats ? realtime.getStats() : { users: 0, sockets: 0 },
+    memory: {
+      rssMb: Math.round(mem.rss / 1024 / 1024),
+      heapUsedMb: Math.round(mem.heapUsed / 1024 / 1024),
+      heapTotalMb: Math.round(mem.heapTotal / 1024 / 1024),
+    },
+    devices: devices.map((d) => ({
+      name: d.name,
+      ip: d.ip,
+      online: d.online === true,
+      status: d.status || 'UNKNOWN',
+      lastSeen: d.lastSeen,
+      lastLatency: d.lastLatency || 0,
+      averageLatency: d.averageLatency || 0,
+      failureCount: d.failureCount || 0,
+    })),
+  });
+});
 
 // -------- Rate limiting ---------------------------------------------------
 // Public-tier baseline for every /api/v1 hit. Auth routes layer their own
