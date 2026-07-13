@@ -91,19 +91,33 @@ const sections = [
 
 export default function Sidebar({ onNavigate }) {
   const role = useSelector((s) => s.auth.user?.role);
+  const meId = useSelector((s) => s.auth.user?._id);
   const { canAccess } = useSettingsPermissions();
   const open = useSelector((s) => s.ui.sidebarOpen);
   const qc = useQueryClient();
 
+  // Sidebar's "today" card refreshes via the socket bridge on every new
+  // punch; the 60 s poll is a fallback for lost websocket connections.
   const { data: todayData } = useQuery({
     queryKey: ['attendance-today'],
     queryFn: () => attendanceService.today(),
-    refetchOnWindowFocus: true,
     refetchInterval: 60_000,
   });
   const today = todayData?.data || null;
   const isClockedIn = !!today?.clockIn && !today?.clockOut;
   const isClockedOut = !!today?.clockIn && !!today?.clockOut;
+
+  // Owner match — never let the button act on someone else's row (a
+  // populated response's employee field can be a raw ObjectId, a string,
+  // or a populated object).
+  const ownerId = (() => {
+    const e = today?.employee;
+    if (!e) return null;
+    if (typeof e === 'string') return e;
+    return String(e._id || e);
+  })();
+  const isOwner = !!meId && !!ownerId && String(meId) === String(ownerId);
+
   // A device session is "open for web clock-in" only when the LAST session
   // has a device check-in AND no device check-out yet — matches the
   // backend gate in requireDeviceCheckInToday. Without the deviceCheckOutAt
@@ -111,7 +125,30 @@ export default function Sidebar({ onNavigate }) {
   // silently closes the session on the device side) and every click would
   // 403 with "punch your finger on the device first".
   const canClockIn = !!today?.deviceCheckInAt && !today?.deviceCheckOutAt && !today?.clockIn;
-  const canClockOut = !!today?.deviceCheckOutAt && !!today?.clockIn && !today?.clockOut;
+
+  // Clock Out — spec-driven visibility. Reads the CANONICAL fields the
+  // backend guarantees (`isOpen`, `attendanceStatus`) so the button is
+  // correct regardless of calendar date — a device check-out at 00:10
+  // after a 15:00 device check-in still opens Clock Out on the same row.
+  // Falls back to the legacy field-based test for older backends where
+  // `attendanceStatus` is not yet populated.
+  const hasCanonicalStatus = today && today.attendanceStatus != null;
+  const canClockOut = hasCanonicalStatus
+    ? (
+        isOwner &&
+        today.isOpen === true &&
+        today.attendanceStatus === 'DEVICE_OUT' &&
+        !!today.clockIn &&
+        !today.clockOut
+      )
+    : (
+        // Backward-compat path — pre-lifecycle backend. Also enforces owner
+        // match so the check is never date-dependent.
+        (!meId || !ownerId || isOwner) &&
+        !!today?.deviceCheckOutAt &&
+        !!today?.clockIn &&
+        !today?.clockOut
+      );
 
   const invalidateAttendance = () => {
     qc.invalidateQueries({ queryKey: ['attendance-today'] });

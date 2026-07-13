@@ -26,4 +26,9 @@ const announcementSchema = new mongoose.Schema(
 announcementSchema.statics.PRIORITIES = ANNOUNCEMENT_PRIORITY;
 announcementSchema.statics.AUDIENCE_TYPES = AUDIENCE_TYPES;
 
+// Feed query: active + publishAt <= now + expiresAt null|>=now, sorted by
+// pinned desc + publishAt desc. Compound covers filter + sort.
+announcementSchema.index({ active: 1, publishAt: -1 });
+announcementSchema.index({ active: 1, pinned: -1, publishAt: -1 });
+
 module.exports = mongoose.model('Announcement', announcementSchema);

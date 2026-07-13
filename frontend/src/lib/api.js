@@ -13,56 +13,138 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-let isRefreshing = false;
-let queue = [];
+// ------------------------------------------------------------------
+// Single-flight refresh queue.
+//
+// Only ONE /auth/refresh request may be in flight at any time. Every
+// request that fails with 401 while a refresh is running is parked in
+// `pendingQueue` and replayed with the new access token as soon as the
+// refresh resolves. If the refresh REJECTS, every queued request is
+// rejected too, the auth state is cleared, and the user is redirected
+// to the login screen by ProtectedRoute.
+//
+// This eliminates the burst of parallel 401 → refresh → retry loops that
+// used to fire one toast per parallel request when the token expired.
+// ------------------------------------------------------------------
+let refreshPromise = null;
+let pendingQueue = [];
 
-const processQueue = (error, token = null) => {
-  queue.forEach(({ resolve, reject }) => (error ? reject(error) : resolve(token)));
-  queue = [];
+const enqueue = () =>
+  new Promise((resolve, reject) => { pendingQueue.push({ resolve, reject }); });
+
+const flushQueue = (error, token = null) => {
+  const q = pendingQueue;
+  pendingQueue = [];
+  for (const { resolve, reject } of q) {
+    if (error) reject(error);
+    else resolve(token);
+  }
+};
+
+const isAuthEndpointUrl = (url = '') =>
+  /\/auth\/(login|refresh|forgot-password|reset-password)/.test(url);
+
+/**
+ * Perform the refresh HTTP call exactly once for a burst of 401s.
+ * Uses a bare axios instance so we never re-enter our own interceptor
+ * and never accidentally attach the (about to be replaced) access token.
+ */
+const runRefresh = async () => {
+  const refreshToken = store.getState().auth.refreshToken;
+  if (!refreshToken) throw new Error('missing refresh token');
+  const { data } = await axios.post(
+    `${baseURL}/auth/refresh`,
+    { refreshToken },
+    { headers: { 'Content-Type': 'application/json' } }
+  );
+  const accessToken = data?.data?.accessToken;
+  const newRefresh = data?.data?.refreshToken;
+  if (!accessToken) throw new Error('refresh returned no access token');
+  store.dispatch(setTokens({ accessToken, refreshToken: newRefresh || refreshToken }));
+  return accessToken;
 };
 
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
-    const original = error.config;
+    const original = error?.config;
     const status = error?.response?.status;
     const url = original?.url || '';
-    const isAuthEndpoint = url.includes('/auth/login') || url.includes('/auth/refresh') || url.includes('/auth/forgot-password') || url.includes('/auth/reset-password');
+    const authEndpoint = isAuthEndpointUrl(url);
 
-    if (status === 401 && !original._retry && !isAuthEndpoint) {
+    // Only attempt refresh for genuine 401 → protected endpoint failures
+    // that we haven't already replayed once.
+    const shouldRefresh =
+      status === 401 &&
+      original &&
+      !original._retry &&
+      !authEndpoint;
+
+    if (shouldRefresh) {
+      // No refresh token → straight logout. Suppress the toast so the
+      // login redirect isn't accompanied by a red banner mid-navigation.
       const refreshToken = store.getState().auth.refreshToken;
       if (!refreshToken) {
         store.dispatch(logout());
         return Promise.reject(error);
       }
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => queue.push({ resolve, reject }))
-          .then((token) => {
-            original.headers.Authorization = `Bearer ${token}`;
-            return api(original);
-          })
-          .catch((e) => Promise.reject(e));
-      }
+
+      // Mark this request as a retry BEFORE queueing, so if it comes back
+      // as 401 again we don't loop into another refresh cycle.
       original._retry = true;
-      isRefreshing = true;
+
+      // If a refresh is already running, park this request and replay it
+      // when the shared promise resolves. This is the whole point of the
+      // pattern — N concurrent 401s produce exactly ONE /refresh call.
+      if (refreshPromise) {
+        try {
+          const token = await enqueue();
+          original.headers = original.headers || {};
+          original.headers.Authorization = `Bearer ${token}`;
+          return api(original);
+        } catch (e) {
+          return Promise.reject(e);
+        }
+      }
+
+      // First 401 in the burst — kick off the refresh, and let subsequent
+      // 401s (which will see refreshPromise set) enqueue.
+      refreshPromise = runRefresh();
       try {
-        const { data } = await axios.post(`${baseURL}/auth/refresh`, { refreshToken });
-        const { accessToken, refreshToken: newRefresh } = data.data;
-        store.dispatch(setTokens({ accessToken, refreshToken: newRefresh }));
-        processQueue(null, accessToken);
-        original.headers.Authorization = `Bearer ${accessToken}`;
+        const token = await refreshPromise;
+        flushQueue(null, token);
+        original.headers = original.headers || {};
+        original.headers.Authorization = `Bearer ${token}`;
         return api(original);
       } catch (e) {
-        processQueue(e, null);
+        // Refresh itself failed — reject every queued request with the
+        // same error so ONE toast fires (below, on the rejection path).
+        flushQueue(e, null);
         store.dispatch(logout());
         toast.error('Session expired, please log in again');
         return Promise.reject(e);
       } finally {
-        isRefreshing = false;
+        refreshPromise = null;
       }
     }
-    const msg = error?.response?.data?.message || error.message;
-    if (status && status >= 400 && !original?.silent) toast.error(msg);
+
+    // ----------------------------------------------------------------
+    // Error toast policy.
+    //
+    // Suppress toasts for:
+    //  - 401s while a refresh is in flight (they'll be replayed).
+    //  - The retried request's own eventual 401 (marked with _retry).
+    //  - Requests that opt out via `config.silent`.
+    //  - The /auth/refresh call itself (its outcome is toasted above).
+    // ----------------------------------------------------------------
+    const suppress =
+      original?.silent ||
+      authEndpoint ||
+      (status === 401 && (refreshPromise || original?._retry));
+    if (!suppress && status && status >= 400) {
+      const msg = error?.response?.data?.message || error.message;
+      if (msg) toast.error(msg);
+    }
     return Promise.reject(error);
   }
 );

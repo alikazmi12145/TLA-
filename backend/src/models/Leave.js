@@ -18,4 +18,9 @@ const leaveSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Common read patterns: per-employee history sorted by newest first,
+// and admin "pending approvals" list scoped by status.
+leaveSchema.index({ employee: 1, status: 1, createdAt: -1 });
+leaveSchema.index({ status: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Leave', leaveSchema);

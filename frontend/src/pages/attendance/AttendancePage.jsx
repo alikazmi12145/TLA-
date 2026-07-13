@@ -80,11 +80,12 @@ export default function AttendancePage() {
     ...(filters.employee ? { employee: filters.employee } : {}),
     limit: 500,
   };
+  // Live clock-in/out now arrives via the socket bridge (attendance-created
+  // invalidates the ['attendance'] key). Poll relaxed to 60 s as a safety net.
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['attendance', queryParams],
     queryFn: () => attendanceService.list(queryParams),
-    staleTime: 0,
-    refetchInterval: 30000, // poll every 30s so admins see live clock-in/out
+    refetchInterval: 60_000,
   });
 
   const { data: empData } = useQuery({

@@ -9,6 +9,9 @@ const Target = require('./models/Target');
 const Device = require('./models/Device');
 const biometric = require('./services/biometric.service');
 const zk = require('./services/zkteco.service');
+const realtime = require('./services/realtime.service');
+const deviceMetrics = require('./services/deviceMetrics.service');
+const deviceHealth = require('./services/deviceHealth.service');
 
 // Fail-fast env validation BEFORE any work is scheduled.
 validateEnv(logger);
@@ -104,6 +107,11 @@ const shutdown = async (signal, exitCode = 0) => {
   for (const id of _timeouts) clearTimeout(id);
   _intervals.clear();
   _timeouts.clear();
+  // Also stop the standalone monitors that manage their own timers.
+  try { deviceHealth.stop(); } catch { /* ignore */ }
+  try { deviceMetrics.stop(); } catch { /* ignore */ }
+  // Flush any buffered device metrics before we tear sockets down.
+  try { await deviceMetrics.flush(); } catch { /* ignore */ }
 
   // 2) Stop accepting new HTTP connections. Existing ones drain until the
   //    hard deadline below.
@@ -169,6 +177,33 @@ const forceExit = (signal) => {
     _server.listen(PORT, () => {
       logger.info(`TLA HRMS API running on http://localhost:${PORT}`);
     });
+
+    // ------------------------------------------------------------------
+    // Realtime + telemetry wiring.
+    //   - socket.io shares the HTTP server (no extra port).
+    //   - Every zkteco op forwards its result to the metrics buffer.
+    //   - The metrics buffer flushes to Mongo every DEVICE_METRICS_FLUSH_MS.
+    //   - The health monitor pings every enabled device every 30 s and
+    //     emits device-online / device-offline on state change.
+    // ------------------------------------------------------------------
+    realtime.init(_server);
+    zk.setMetricsHook(deviceMetrics.record);
+    deviceMetrics.start();
+    deviceHealth.start();
+
+    // Prune the zkteco connection-cache and mock stores every 10 minutes
+    // so devices removed/disabled in Mongo don't leak their state buckets
+    // (zk handle, per-device chain closure) for the process lifetime.
+    const prune = async () => {
+      try {
+        const rows = await Device.find({ enabled: true }).select('ip port').lean();
+        const active = rows.map((d) => `${d.ip}:${d.port}`);
+        await zk.pruneStale(active);
+      } catch (err) {
+        logger.warn(`[biometric] prune cycle failed: ${err.message}`);
+      }
+    };
+    scheduleInterval(prune, 10 * 60 * 1000);
 
     // Run once at startup, then every 15 minutes.
     sweepExpiredTargets();

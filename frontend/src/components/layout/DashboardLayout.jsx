@@ -36,12 +36,14 @@ export default function DashboardLayout() {
 
   const qc = useQueryClient();
 
+  // Notifications now update via the socket bridge (attendance-created
+  // etc. invalidate this key). The 60 s poll is a safety net so the badge
+  // is still eventually consistent even if the websocket disconnects.
   const { data: notifData } = useQuery({
     queryKey: ['notifications', user?._id],
     queryFn: () => notificationService.list(),
     enabled: !!user?._id,
-    refetchOnWindowFocus: true,
-    refetchInterval: 15_000,
+    refetchInterval: 60_000,
   });
   const unread = notifData?.data?.unread || 0;
 

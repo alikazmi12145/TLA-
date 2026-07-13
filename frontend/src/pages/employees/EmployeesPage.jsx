@@ -30,11 +30,13 @@ export default function EmployeesPage() {
   const [confirm, setConfirm] = useState(null);
 
   const { data: deps } = useQuery({ queryKey: ['departments'], queryFn: departmentService.list });
+  // Employee list refreshes only every 60 s (fingerprint / sync status
+  // changes are low-frequency events). Focus-refetch removed to avoid
+  // firing a full page fetch every time the user Alt-Tabs.
   const { data, isLoading } = useQuery({
     queryKey: ['employees', page, filters],
     queryFn: () => employeeService.list({ page, limit: 10, ...filters }),
-    refetchInterval: 15000,          // live-update fingerprint / sync status
-    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
   });
 
   const onDelete = async () => {

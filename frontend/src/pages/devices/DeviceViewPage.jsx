@@ -23,10 +23,11 @@ export default function DeviceViewPage() {
   const { id } = useParams();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(null);
+  // Single-device view invalidated by socket events; 30 s poll fallback.
   const { data, isLoading } = useQuery({
     queryKey: ['device', id],
     queryFn: () => deviceService.get(id),
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
   });
 
   if (isLoading) return <Loading />;

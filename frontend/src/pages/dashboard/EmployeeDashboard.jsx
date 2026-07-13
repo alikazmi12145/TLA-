@@ -47,6 +47,24 @@ export default function EmployeeDashboard() {
   const s = summary?.data || {};
   const t = today?.data || null;
 
+  // Button visibility — spec-driven, DATE-INDEPENDENT.
+  // Clock Out lights up ONLY when the canonical `attendanceStatus` is
+  // DEVICE_OUT for the current user's open row. Falls back to the legacy
+  // field-based test when the backend hasn't populated `attendanceStatus`
+  // yet (older attendance rows). Both paths verify owner-match so the
+  // button can never act on someone else's row.
+  const _ownerId = (() => {
+    const e = t?.employee;
+    if (!e) return null;
+    if (typeof e === 'string') return e;
+    return String(e._id || e);
+  })();
+  const _isOwner = !!user?._id && !!_ownerId && String(user._id) === String(_ownerId);
+  const clockInEnabled = !!t?.deviceCheckInAt && !t?.deviceCheckOutAt && !t?.clockIn;
+  const clockOutEnabled = t && t.attendanceStatus != null
+    ? (_isOwner && t.isOpen === true && t.attendanceStatus === 'DEVICE_OUT' && !!t.clockIn && !t.clockOut)
+    : ((!user?._id || !_ownerId || _isOwner) && !!t?.deviceCheckOutAt && !!t?.clockIn && !t?.clockOut);
+
   const action = async (fn, success) => {
     try {
       await fn();
@@ -164,8 +182,8 @@ export default function EmployeeDashboard() {
             ) : null}
 
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Button onClick={() => action(attendanceService.clockIn, 'Clocked in')} variant="contained" color="success" disabled={!t?.deviceCheckInAt || !!t?.deviceCheckOutAt || !!t?.clockIn}>Clock in</Button>
-              <Button onClick={() => action(attendanceService.clockOut, 'Clocked out')} variant="contained" color="error" disabled={!t?.deviceCheckOutAt || !t?.clockIn || !!t?.clockOut}>Clock out</Button>
+              <Button onClick={() => action(attendanceService.clockIn, 'Clocked in')} variant="contained" color="success" disabled={!clockInEnabled}>Clock in</Button>
+              <Button onClick={() => action(attendanceService.clockOut, 'Clocked out')} variant="contained" color="error" disabled={!clockOutEnabled}>Clock out</Button>
             </Stack>
           </CardContent></Card>
         </Grid>

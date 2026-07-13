@@ -33,10 +33,12 @@ const Metric = ({ icon, label, value, color = 'primary' }) => (
 export default function EnrollmentCard() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  // Enrollment progress polls once a minute — new enrollments are a
+  // manual action, not a stream, so 15 s was pure waste.
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['dash-enrollment'],
     queryFn: dashboardService.enrollment,
-    refetchInterval: 15000,
+    refetchInterval: 60_000,
   });
 
   const d = data?.data || {};

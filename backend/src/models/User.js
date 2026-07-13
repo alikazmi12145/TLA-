@@ -100,4 +100,12 @@ userSchema.methods.toSafeJSON = function () {
   return obj;
 };
 
+// Punch resolution hits this compound on every biometric import — one
+// lookup per punch, so this is the single most-called query in the app.
+userSchema.index({ deviceId: 1, deviceUserId: 1 });
+// Admin employee list filters by role + active state very frequently.
+userSchema.index({ role: 1, isActive: 1 });
+// Sync dashboard filters by device + sync outcome.
+userSchema.index({ deviceId: 1, syncStatus: 1 });
+
 module.exports = mongoose.model('User', userSchema);

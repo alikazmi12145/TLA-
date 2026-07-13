@@ -19,4 +19,6 @@ commissionSchema.pre('save', function (next) {
   next();
 });
 
+commissionSchema.index({ employee: 1, periodEnd: -1 });
+
 module.exports = mongoose.model('Commission', commissionSchema);

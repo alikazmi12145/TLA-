@@ -19,12 +19,23 @@ const connectDB = async () => {
     // deploys, indexes should be built once explicitly (or via a migration)
     // so a hot restart doesn't stall on a large collection.
     autoIndex: process.env.NODE_ENV !== 'production',
-    // Explicit pool + timeouts — the defaults are fine for small VPS
-    // deployments, but stating them is safer for MongoDB Atlas.
+    // Explicit pool + timeouts tuned for a 2 vCPU / 4 GB VPS running
+    // Node + MongoDB side-by-side. Pool caps concurrent Mongo ops; a
+    // long idle timeout releases sockets on quiet nights; heartbeat 10s
+    // is the sweet spot for failover detection vs chatter.
     maxPoolSize: Number(process.env.MONGO_POOL_MAX || 20),
     minPoolSize: Number(process.env.MONGO_POOL_MIN || 2),
+    maxIdleTimeMS: Number(process.env.MONGO_MAX_IDLE_MS || 60_000),
     serverSelectionTimeoutMS: Number(process.env.MONGO_SERVER_SELECTION_MS || 10_000),
     socketTimeoutMS: Number(process.env.MONGO_SOCKET_MS || 45_000),
+    heartbeatFrequencyMS: Number(process.env.MONGO_HEARTBEAT_MS || 10_000),
+    // Idempotent writes survive network blips at zero cost.
+    retryWrites: true,
+    retryReads: true,
+    // Prefer zstd (fast + high ratio) then zlib for wire compression.
+    // The driver silently falls back to no compression if the server
+    // doesn't advertise support, so this is safe on old MongoDB too.
+    compressors: (process.env.MONGO_COMPRESSORS || 'zstd,zlib').split(','),
   });
   logger.info(`MongoDB connected: ${c.connection.host}/${c.connection.name}`);
   return c;

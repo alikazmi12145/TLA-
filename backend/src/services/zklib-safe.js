@@ -58,10 +58,22 @@ function patchZKLibInstance(zk) {
       let timer = null;
       let settled = false;
 
+      // ------------------------------------------------------------------
+      // Cleanup is the single place where every listener + timer we
+      // attached below is released. Called from every completion path,
+      // including the new socket 'close' / 'error' paths — without those
+      // hooks a socket that died between packets would strand the 'data'
+      // listener and its `replyBuffer` closure forever (memory leak +
+      // MaxListenersExceededWarning after a few dozen failures).
+      // ------------------------------------------------------------------
       const cleanup = () => {
         if (timer) { clearTimeout(timer); timer = null; }
-        // Guard: socket may already be nulled by 'close' handler.
         try { socket.removeListener('data', handleOnData); } catch { /* ignore */ }
+        try { socket.removeListener('close', onSocketClose); } catch { /* ignore */ }
+        try { socket.removeListener('error', onSocketError); } catch { /* ignore */ }
+        // Drop the growing buffer reference so GC can reclaim its chunks
+        // immediately, even if the caller retains the returned Promise.
+        replyBuffer = null;
       };
       const done = (err, val) => {
         if (settled) return;
@@ -100,10 +112,23 @@ function patchZKLibInstance(zk) {
         }
       }
 
+      // Socket-level failure paths: if the underlying TCP socket dies
+      // between packets, node-zklib's internal state never resolves the
+      // request. Reject explicitly so `exec()` tears down cleanly and
+      // GC can free the buffered reply.
+      const onSocketClose = () => done(new Error('SOCKET_CLOSED_DURING_REQUEST'));
+      const onSocketError = (err) => done(err instanceof Error ? err : new Error(String(err)));
+
       socket.on('data', handleOnData);
+      socket.once('close', onSocketClose);
+      socket.once('error', onSocketError);
 
       socket.write(msg, null, (err) => {
         if (err) { done(err); return; }
+        // Clear any prior timer before installing the response deadline —
+        // otherwise finalizeSoon() and this callback can both hold a
+        // pending timer for the same request.
+        if (timer) { clearTimeout(timer); timer = null; }
         timer = setTimeout(
           () => done(new Error('TIMEOUT_IN_RECEIVING_RESPONSE_AFTER_REQUESTING_DATA')),
           this.timeout || 5000

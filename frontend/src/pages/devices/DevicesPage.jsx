@@ -32,10 +32,12 @@ export default function DevicesPage() {
   const [confirm, setConfirm] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
+  // Device status is pushed by the health monitor via the socket bridge
+  // (device-online / device-offline). The 30 s poll is a fallback.
   const { data, isLoading } = useQuery({
     queryKey: ['devices'],
     queryFn: deviceService.list,
-    refetchInterval: 20_000,
+    refetchInterval: 30_000,
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['devices'] });

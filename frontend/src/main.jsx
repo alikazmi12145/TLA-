@@ -12,9 +12,19 @@ import ThemeProviderWrapper from './app/ThemeProviderWrapper';
 
 import './index.css';
 
+// Global defaults tuned for a socket-driven UI: we never poll on focus
+// or reconnect, and treat data as fresh for 60 s so navigating between
+// pages does not re-fire the same request. Realtime cache invalidations
+// still make the UI update immediately when the server has news.
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { refetchOnWindowFocus: false, retry: 1, staleTime: 30_000 },
+    queries: {
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      refetchOnMount: false,
+      retry: 1,
+      staleTime: 60_000,
+    },
   },
 });
 

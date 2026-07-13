@@ -11,6 +11,20 @@ const Payroll = require('../models/Payroll');
 const Commission = require('../models/Commission');
 const { ROLES, ATTENDANCE_STATUS, FINGERPRINT_STATUS, SYNC_STATUS } = require('../config/constants');
 
+// A row only counts as "present" once it carries at least one FULLY
+// CLOSED session (Device-In → Clock-In → Device-Out → Clock-Out). This
+// keeps every dashboard tile in sync with the Attendance log, which
+// renders one row per completed session and hides in-progress /
+// device-only / partial rows. Without this filter, a stray device punch
+// that upserted `status: PRESENT` would inflate the count while the log
+// showed nothing — the exact discrepancy users report as "4 presents but
+// no session records".
+const HAS_COMPLETED_SESSION = {
+  sessions: { $elemMatch: { clockIn: { $ne: null }, clockOut: { $ne: null } } },
+};
+const isCompletedAttendance = (a) =>
+  Array.isArray(a?.sessions) && a.sessions.some((s) => s && s.clockIn && s.clockOut);
+
 exports.adminSummary = asyncHandler(async (_req, res) => {
   const today = startOfDay();
   const monthStart = startOfMonth();
@@ -27,7 +41,11 @@ exports.adminSummary = asyncHandler(async (_req, res) => {
     totalDepartments,
   ] = await Promise.all([
     User.countDocuments({ role: { $ne: ROLES.SUPER_ADMIN }, isActive: true }),
-    Attendance.countDocuments({ date: today, status: { $in: [ATTENDANCE_STATUS.PRESENT, ATTENDANCE_STATUS.LATE] } }),
+    Attendance.countDocuments({
+      date: today,
+      status: { $in: [ATTENDANCE_STATUS.PRESENT, ATTENDANCE_STATUS.LATE] },
+      ...HAS_COMPLETED_SESSION,
+    }),
     Attendance.countDocuments({ date: today, status: ATTENDANCE_STATUS.ABSENT }),
     Attendance.countDocuments({ date: today, status: ATTENDANCE_STATUS.LEAVE }),
     Holiday.countDocuments({ date: { $gte: new Date(`${dayjs().year()}-01-01`), $lte: new Date(`${dayjs().year()}-12-31T23:59:59`) } }),
@@ -70,7 +88,9 @@ exports.employeeSummary = asyncHandler(async (req, res) => {
     ]),
   ]);
 
-  const presentDays = att.filter((a) => a.status === 'PRESENT' || a.status === 'LATE').length;
+  const presentDays = att.filter(
+    (a) => (a.status === 'PRESENT' || a.status === 'LATE') && isCompletedAttendance(a)
+  ).length;
   const absentDays = att.filter((a) => a.status === 'ABSENT').length;
   const workMinutes = att.reduce((s, a) => s + (a.workMinutes || 0), 0);
 
@@ -135,7 +155,40 @@ exports.departmentPerformance = asyncHandler(async (_req, res) => {
       $group: {
         _id: '$dept.name',
         employees: { $sum: 1 },
-        present: { $sum: { $size: { $filter: { input: '$att', as: 'a', cond: { $in: ['$$a.status', ['PRESENT', 'LATE']] } } } } },
+        present: {
+          $sum: {
+            $size: {
+              $filter: {
+                input: '$att',
+                as: 'a',
+                cond: {
+                  $and: [
+                    { $in: ['$$a.status', ['PRESENT', 'LATE']] },
+                    {
+                      $gt: [
+                        {
+                          $size: {
+                            $filter: {
+                              input: { $ifNull: ['$$a.sessions', []] },
+                              as: 's',
+                              cond: {
+                                $and: [
+                                  { $ne: ['$$s.clockIn', null] },
+                                  { $ne: ['$$s.clockOut', null] },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                        0,
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
         totalDays: { $sum: { $size: '$att' } },
       },
     },

@@ -47,6 +47,26 @@ const deviceSchema = new mongoose.Schema(
     userCount: { type: Number, default: 0 },
     fingerCount: { type: Number, default: 0 },
     recordCount: { type: Number, default: 0 },
+
+    // --------------------------------------------------------------
+    // Health / metrics telemetry (populated by deviceHealth monitor and
+    // by every biometric op via the metrics hook). Read by the UI +
+    // socket.io realtime layer. All fields are additive and default to
+    // safe zero values — existing docs upgrade transparently.
+    // --------------------------------------------------------------
+    online: { type: Boolean, default: false, index: true },
+    status: { type: String, default: 'UNKNOWN' }, // mirrors connectionStatus
+    lastSeen: { type: Date },
+    lastConnectedAt: { type: Date },
+    lastDisconnectedAt: { type: Date },
+    lastSuccessAt: { type: Date },
+    lastFailureAt: { type: Date },
+    lastLatency: { type: Number, default: 0 },
+    averageLatency: { type: Number, default: 0 },
+    failureCount: { type: Number, default: 0 },
+    totalRequests: { type: Number, default: 0 },
+    successfulRequests: { type: Number, default: 0 },
+    failedRequests: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

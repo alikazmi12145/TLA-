@@ -132,11 +132,30 @@ const stateFor = (device) => {
   return s;
 };
 
+// Structured op log. Format required by spec §7:
+// timestamp / device IP / device name / operation / duration / status / error.
+// Winston stamps the timestamp automatically, so we prepend the rest.
 const perfLog = (ok, device, op, ms, errMsg) => {
   const label = device.name || 'device';
   const line = `[biometric][${device.ip}][${label}] ${op} ${ok ? 'OK' : 'FAIL'} in ${ms}ms${errMsg ? ` :: ${errMsg}` : ''}`;
   if (ok) logger.info(line);
   else logger.warn(line);
+};
+
+// -------------------------------------------------------------------
+// Optional metrics hook. `server.js` wires this to `deviceMetrics.record`
+// at boot. Kept as a hook (rather than a hard require) so this module
+// stays free of cycles and remains usable from scripts.
+// -------------------------------------------------------------------
+let metricsHook = null;
+const setMetricsHook = (fn) => { metricsHook = typeof fn === 'function' ? fn : null; };
+const fireMetrics = (device, op, ms, ok, err) => {
+  if (!metricsHook || !device || !device._id) return;
+  try {
+    metricsHook({ deviceId: device._id, op, latencyMs: ms, ok, error: err });
+  } catch {
+    // Never let a metrics-hook failure surface to the caller.
+  }
 };
 
 const tearDown = (device, reason) => {
@@ -321,16 +340,22 @@ const exec = async (device, opName, timeoutMs, fn, { retry = true } = {}) => {
     try {
       handle = await ensureConnected(device);
     } catch (err) {
-      perfLog(false, device, `${opName}${isRetry ? ' (retry)' : ''}`, Date.now() - start, err.message);
+      const ms = Date.now() - start;
+      perfLog(false, device, `${opName}${isRetry ? ' (retry)' : ''}`, ms, err.message);
+      fireMetrics(device, opName, ms, false, err);
       throw err;
     }
     try {
       const val = await withTimeout(Promise.resolve().then(() => fn(handle)), timeoutMs, opName);
-      perfLog(true, device, `${opName}${isRetry ? ' (retry)' : ''}`, Date.now() - start);
+      const ms = Date.now() - start;
+      perfLog(true, device, `${opName}${isRetry ? ' (retry)' : ''}`, ms);
+      fireMetrics(device, opName, ms, true, null);
       s.consecutiveFailures = 0;
       return val;
     } catch (err) {
-      perfLog(false, device, `${opName}${isRetry ? ' (retry)' : ''}`, Date.now() - start, err.message);
+      const ms = Date.now() - start;
+      perfLog(false, device, `${opName}${isRetry ? ' (retry)' : ''}`, ms, err.message);
+      fireMetrics(device, opName, ms, false, err);
       tearDown(device, `${opName}: ${err.message}`);
       throw err;
     }
@@ -620,15 +645,60 @@ const restart = async (device) => {
   tearDown({ ip: device.ip, port: device.port }, 'post-restart teardown');
 };
 
+/**
+ * Prune connection-cache entries for devices no longer in the given
+ * `activeKeys` set (each entry is an `ip:port` string).
+ *
+ * Called periodically by server.js so a device that is disabled or
+ * deleted from Mongo doesn't leak its state bucket (zk handle, chain
+ * closure, mock in-memory logs) for the process lifetime.
+ *
+ * Safe to call at any time — a state bucket that has an active `chain`
+ * is torn down cleanly via the existing `disconnect()` path.
+ */
+const pruneStale = async (activeKeys) => {
+  const keep = new Set(activeKeys || []);
+  const stale = [];
+  for (const k of state.keys()) {
+    if (!keep.has(k)) stale.push(k);
+  }
+  for (const k of stale) {
+    const [ip, portStr] = k.split(':');
+    const port = Number(portStr);
+    const device = { ip, port };
+    try {
+      // Drain any in-flight op on this key before evicting the bucket —
+      // stops us from destroying a socket that's still being read from.
+      // eslint-disable-next-line no-await-in-loop
+      await disconnect(device);
+    } catch { /* ignore */ }
+    state.delete(k);
+    // Also drop the mock in-memory store for this key so BIOMETRIC_MOCK
+    // mode doesn't accumulate stale user/log arrays forever.
+    mockStore.delete(k);
+    logger.info(`[biometric] pruned stale connection cache for ${k}`);
+  }
+  return stale.length;
+};
+
 // Test helper (used by tests only): inject a punch into the mock device.
+// A hard cap prevents the in-memory log array from growing without bound
+// when the mock runs for hours in a dev VPS — the K40 itself only stores
+// ~80 records so 500 is more than we ever need.
+const MOCK_LOG_CAP = 500;
 const _mockPunch = (device, payload) => {
   if (!MOCK) return;
-  getMock(device).logs.push({
+  const m = getMock(device);
+  m.logs.push({
     deviceUserId: String(payload.deviceUserId),
     timestamp: payload.timestamp || new Date(),
     checkType: payload.checkType || CHECK_TYPE.CHECK_IN,
     verificationMode: payload.verificationMode || VERIFICATION_MODE.FINGERPRINT,
   });
+  if (m.logs.length > MOCK_LOG_CAP) {
+    // Drop the oldest half at once — cheaper than repeated shift().
+    m.logs.splice(0, m.logs.length - MOCK_LOG_CAP);
+  }
 };
 
 module.exports = {
@@ -647,5 +717,8 @@ module.exports = {
   getAttendance,
   clearAttendance,
   restart,
+  setMetricsHook,
+  pruneStale,
+  keyOf,
   _mockPunch,
 };

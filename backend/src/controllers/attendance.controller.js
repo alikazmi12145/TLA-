@@ -132,24 +132,9 @@ const evaluateLate = async (employeeId, clockIn, anchorDate) => {
 // `syncStatus` (optional) is the return value from `_refreshDeviceStateFor`
 // and is used only to enrich the 403 message when the gate rejects.
 const requireDeviceCheckInToday = async (employeeId, syncStatus) => {
-  let row = await attendanceRepo.findOpenForEmployee(employeeId);
-  if (!row) {
-    // Safety net: on K40 devices without F1/F4 keys, a user often taps
-    // twice ("did the first take?") — the second tap used to close the
-    // session on the device side, leaving no open row for the web Clock In
-    // gate to attach to. Detect that fingerprint (device-in + device-out
-    // both set within 15 min, no web clock-in) and auto-reopen the session
-    // so the user can proceed without another physical tap.
-    const reopenable = await attendanceRepo.findAutoReopenableForClockIn(employeeId);
-    if (reopenable) {
-      logger.info(
-        `[attendance] auto-reopening K40-auto-toggled row for employee=${employeeId}, anchor=${reopenable.earliestDeviceIn.toISOString()}`
-      );
-      row = await attendanceRepo.reopenLastSessionForClockIn(reopenable.doc, {
-        earliestDeviceIn: reopenable.earliestDeviceIn,
-      });
-    }
-  }
+  // Strict flow: no auto-reopen fallbacks. The employee MUST have a real
+  // open device check-in on the K40 before Clock In is allowed.
+  const row = await attendanceRepo.findOpenForEmployee(employeeId);
   if (!row) {
     const msg = await _diagnoseNoOpenRow(employeeId, syncStatus);
     throw new ApiError(403, msg);

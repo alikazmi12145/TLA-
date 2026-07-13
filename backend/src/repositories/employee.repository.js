@@ -7,8 +7,11 @@ const User = require('../models/User');
 
 const findById = (id) => User.findById(id);
 
+// Read-only lookup — used per-punch during attendance import. `.lean()`
+// halves memory + hydration cost since callers only read plain fields
+// and never call `.save()` on the returned object.
 const findByDeviceUserId = (deviceId, deviceUserId) =>
-  User.findOne({ deviceId, deviceUserId });
+  User.findOne({ deviceId, deviceUserId }).lean();
 
 /**
  * Returns the numerically smallest free deviceUserId (1..) that is not yet
@@ -27,10 +30,15 @@ const nextFreeDeviceUserId = async (deviceId) => {
   throw new Error('No free device user IDs available (65534 used).');
 };
 
+// Read-only listing — projection + `.lean()` avoid materialising Mongoose
+// docs for hundreds of employees during bulk syncs. Callers pass ids to
+// other repo helpers rather than saving these objects directly.
 const listSyncable = (filter = {}) =>
-  User.find({ isActive: true, ...filter }).select(
-    'employeeId fullName deviceId deviceUserId devicePrivilege syncStatus deviceSynced fingerprintStatus fingerBaseline fingerCount lastSync createdAt'
-  );
+  User.find({ isActive: true, ...filter })
+    .select(
+      'employeeId fullName deviceId deviceUserId devicePrivilege syncStatus deviceSynced fingerprintStatus fingerBaseline fingerCount lastSync createdAt'
+    )
+    .lean();
 
 const setSyncSuccess = (userId, patch) =>
   User.findByIdAndUpdate(

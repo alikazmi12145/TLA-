@@ -20,5 +20,10 @@ devicePunchSchema.index(
   { device: 1, deviceUserId: 1, punchAt: 1 },
   { unique: true }
 );
+// Per-employee punch history sorted by newest first (used by enrolment
+// verification + audit view).
+devicePunchSchema.index({ employee: 1, punchAt: -1 });
+// Device-scoped chronology for the raw audit trail.
+devicePunchSchema.index({ device: 1, punchAt: -1 });
 
 module.exports = mongoose.model('DevicePunch', devicePunchSchema);

@@ -12,6 +12,8 @@ const zk = require('./zkteco.service');
 const deviceRepo = require('../repositories/device.repository');
 const employeeRepo = require('../repositories/employee.repository');
 const attendanceRepo = require('../repositories/attendance.repository');
+const realtime = require('./realtime.service');
+const attendanceLock = require('../utils/attendanceLock');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const DevicePunch = require('../models/DevicePunch');
@@ -243,24 +245,187 @@ const syncEmployee = async (employee, opts = {}) => {
   }
 };
 
-/** Push every active employee to the given device. */
-const syncAllEmployees = async (deviceId) => {
+/**
+ * Bulk employee synchronisation — diff-based.
+ *
+ * The naive "push everyone every time" strategy hammers the K40 (each
+ * createUser is a serialised round-trip) and thrashes the Mongo `User`
+ * doc. Instead we:
+ *
+ *   1. Read every syncable HRMS employee.
+ *   2. Read every user currently on the device.
+ *   3. Build a canonical (uid, userId, name, privilege) tuple for both
+ *      sides and diff them.
+ *   4. CREATE users missing on the device.
+ *   5. UPDATE users whose name/privilege drifted.
+ *   6. DELETE users that exist on the device but not in HRMS — only when
+ *      the caller passes `deleteOrphans: true` (default is safe: NO
+ *      deletes). This matches the "if configured" requirement in §4.
+ *   7. SKIP identical users (biggest win).
+ *
+ * Returns a structured summary consumed by the API + logs.
+ */
+const _canonicalDeviceUser = (u) => ({
+  uid: Number(u.uid),
+  userId: String(u.userId ?? u.uid),
+  name: String(u.name || '').trim().slice(0, 24),
+  privilege: Number(u.role ?? u.privilege ?? 0) || 0,
+});
+
+const syncAllEmployees = async (deviceId, opts = {}) => {
+  const startedAt = Date.now();
+  const deleteOrphans = opts.deleteOrphans === true
+    || String(process.env.BIOMETRIC_DELETE_ORPHANS || '').toLowerCase() === 'true';
   const device = await resolveDevice(deviceId);
   if (!device) throw new Error('No device configured');
+
   const employees = await employeeRepo.listSyncable();
-  let synced = 0;
+
+  // Fetch the device roster ONCE. If the device is unreachable we fall back
+  // to the legacy behaviour (push every employee) so we never leave the
+  // system in a worse state than before.
+  let deviceUsers = [];
+  let rosterOk = true;
+  try {
+    deviceUsers = await zk.getUsers(device);
+  } catch (err) {
+    rosterOk = false;
+    logger.warn(`[biometric] syncAllEmployees: could not read device roster (${err.message}); falling back to full push`);
+  }
+
+  // Index device rows by userId (canonical HRMS matching key). Some
+  // firmwares report userId="" — index by numeric uid too so we can still
+  // recognise those rows.
+  const byUserId = new Map();
+  const byUid = new Map();
+  for (const u of deviceUsers) {
+    const c = _canonicalDeviceUser(u);
+    if (c.userId) byUserId.set(c.userId, c);
+    if (c.uid) byUid.set(String(c.uid), c);
+  }
+
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+  let deleted = 0;
   let failed = 0;
   const errors = [];
+
+  // Track which device UIDs we've reconciled so the delete pass only
+  // touches truly orphan rows.
+  const seenDeviceUids = new Set();
+
   for (const emp of employees) {
-    const res = await syncEmployee(emp, { device });
-    if (res.ok) synced += 1;
-    else {
-      failed += 1;
-      errors.push({ employee: emp._id, name: emp.fullName, error: res.error });
+    // A brand-new binding (no deviceUserId yet) always goes through
+    // syncEmployee — it allocates a free UID, purges residuals, resets
+    // fingerBaseline, etc. Cheap short-circuit that reuses existing logic.
+    if (!emp.deviceUserId || String(emp.deviceId) !== String(device._id) || !rosterOk) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await syncEmployee(emp, { device });
+      if (res.ok) {
+        created += 1;
+        if (res.deviceUserId) seenDeviceUids.add(String(res.deviceUserId));
+      } else {
+        failed += 1;
+        errors.push({ employee: emp._id, name: emp.fullName, error: res.error });
+      }
+      continue;
+    }
+
+    const key = String(emp.deviceUserId);
+    seenDeviceUids.add(key);
+    const row = byUserId.get(key) || byUid.get(key);
+    const wantName = String(emp.fullName || '').trim().slice(0, 24);
+    const wantPriv = Number.isFinite(emp.devicePrivilege) ? emp.devicePrivilege : ZK_PRIVILEGE.USER;
+
+    if (!row) {
+      // Present in HRMS, missing on device — create.
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await zk.createUser(device, {
+          uid: Number(emp.deviceUserId),
+          userId: String(emp.deviceUserId),
+          name: wantName,
+          privilege: wantPriv,
+          password: '',
+        });
+        // eslint-disable-next-line no-await-in-loop
+        await employeeRepo.setSyncSuccess(emp._id, {
+          deviceId: device._id,
+          deviceUserId: emp.deviceUserId,
+          fingerprintStatus: emp.fingerprintStatus || FINGERPRINT_STATUS.NOT_ENROLLED,
+          fingerBaseline: Number(emp.fingerBaseline) || 0,
+          fingerCount: Number(emp.fingerCount) || 0,
+          devicePrivilege: wantPriv,
+          deviceUserEnabled: true,
+        });
+        created += 1;
+      } catch (err) {
+        failed += 1;
+        errors.push({ employee: emp._id, name: emp.fullName, error: err.message });
+      }
+    } else if (row.name !== wantName || row.privilege !== wantPriv) {
+      // Drifted metadata — push an update (same protocol command).
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await zk.updateUser(device, {
+          uid: Number(emp.deviceUserId),
+          userId: String(emp.deviceUserId),
+          name: wantName,
+          privilege: wantPriv,
+          password: '',
+        });
+        updated += 1;
+      } catch (err) {
+        failed += 1;
+        errors.push({ employee: emp._id, name: emp.fullName, error: err.message });
+      }
+    } else {
+      // Identical on both sides — no write.
+      skipped += 1;
     }
   }
+
+  // Optional orphan cleanup — deletes users present on the device but not
+  // tied to any HRMS employee. Guarded because on shared devices this
+  // could nuke rows created out-of-band (contractors, admin-only cards).
+  if (rosterOk && deleteOrphans) {
+    const hrmsUids = new Set(employees
+      .filter((e) => e.deviceId && String(e.deviceId) === String(device._id))
+      .map((e) => String(e.deviceUserId)));
+    for (const row of deviceUsers) {
+      const key = String(row.userId ?? row.uid);
+      if (hrmsUids.has(key)) continue;
+      if (seenDeviceUids.has(key)) continue;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await zk.deleteUser(device, row.uid);
+        deleted += 1;
+      } catch (err) {
+        errors.push({ deviceUserId: key, error: err.message });
+      }
+    }
+  }
+
   await refreshDeviceTelemetry(device);
-  return { total: employees.length, synced, failed, errors };
+  const durationMs = Date.now() - startedAt;
+  const summary = {
+    total: employees.length,
+    created,
+    updated,
+    skipped,
+    deleted,
+    failed,
+    // Kept for backward compatibility with existing controllers/clients
+    // that reference the old field name.
+    synced: created + updated,
+    errors,
+    durationMs,
+  };
+  logger.info(
+    `[biometric] syncAllEmployees(${device.name}) created=${created} updated=${updated} skipped=${skipped} deleted=${deleted} failed=${failed} in ${durationMs}ms`
+  );
+  return summary;
 };
 
 const deleteEmployeeFromDevice = async (employee) => {
@@ -398,19 +563,44 @@ const refreshAllFingerprintStatuses = async (deviceId, { onlyNotEnrolled = false
 const importAttendance = async (deviceId, { clearAfter = false } = {}) => {
   const device = await resolveDevice(deviceId);
   if (!device) throw new Error('No device configured');
-  const rawPunches = await zk.getAttendance(device);
+
+  // Serialise imports per device. If a previous import is still running we
+  // skip this cycle rather than piling up — the next tick will retry with a
+  // fresh HWM. The lock has a stale-lease TTL so a crashed caller can't
+  // wedge the poller forever.
+  const release = attendanceLock.acquire(device._id);
+  if (!release) {
+    logger.warn(`[biometric] importAttendance(${device.name}) skipped — previous import still in flight`);
+    return { imported: 0, skipped: 0, total: 0, lastAt: null, locked: true };
+  }
+
+  realtime.emit('attendance-import-started', {
+    deviceId: String(device._id),
+    name: device.name,
+    at: new Date(),
+  });
+
+  try {
+    const rawPunches = await zk.getAttendance(device);
 
   // Collapse identical rows (same user + timestamp). Some K40 firmwares log
   // each physical tap as two verify/attendance records with the same
   // timestamp; without this the same punch would fire twice.
-  const seen = new Set();
-  const punches = [];
-  for (const p of rawPunches) {
-    const k = `${String(p.deviceUserId)}|${new Date(p.timestamp).getTime()}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    punches.push(p);
-  }
+  //
+  // The `seen` Set is scoped tightly so its ~O(punches) memory can be
+  // reclaimed by GC as soon as the de-dup pass finishes, even if the
+  // outer function is still processing.
+  const punches = (() => {
+    const seen = new Set();
+    const out = [];
+    for (const p of rawPunches) {
+      const k = `${String(p.deviceUserId)}|${new Date(p.timestamp).getTime()}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(p);
+    }
+    return out;
+  })();
 
   // High-water mark: node-zklib always returns the FULL punch log (all 80+
   // records the K40 keeps in memory) on every getAttendance() call. Without
@@ -438,23 +628,46 @@ const importAttendance = async (deviceId, { clearAfter = false } = {}) => {
   const users = await zk.getUsers(device).catch(() => []);
   const userIdToUid = new Map(users.map((u) => [String(u.userId), String(u.uid)]));
 
+  // Per-cycle employee cache. The K40 typically returns several punches for
+  // the same user in one import (check-in + check-out on the same tick, or
+  // multiple ticks during a shift). Without a cache each punch fires a
+  // fresh `User.findOne({ deviceId, deviceUserId })` — with 20 punches for
+  // 10 employees that's 20 Mongo round-trips. With this cache it's 10.
+  const empCache = new Map();
+  const resolveEmployee = async (raw) => {
+    if (empCache.has(raw)) return empCache.get(raw);
+    let emp = await employeeRepo.findByDeviceUserId(device._id, raw);
+    if (!emp && userIdToUid.has(raw)) {
+      emp = await employeeRepo.findByDeviceUserId(device._id, userIdToUid.get(raw));
+    }
+    empCache.set(raw, emp || null);
+    return emp;
+  };
+
+  // DevicePunch is a pure audit-trail collection with no business-logic
+  // dependency during the loop. Collect upserts into a single bulkWrite
+  // so N punches produce ONE Mongo round-trip instead of N.
+  const punchOps = [];
+  // Track the latest punch per employee so we can flush `lastAttendance`
+  // updates in a single bulkWrite at the end (was one User.save() per
+  // punch, i.e. quadratic writes on a busy day).
+  const lastAttPerEmp = new Map();
+
   let imported = 0;
   let skipped = 0;
   let lastAt = null;
   for (const p of freshPunches) {
     const raw = String(p.deviceUserId);
-    let emp = await employeeRepo.findByDeviceUserId(device._id, raw);
-    if (!emp && userIdToUid.has(raw)) {
-      // Try again via the device's numeric uid — handles cases where the
-      // device stores userId="-0011" but HRMS stored deviceUserId="2".
-      emp = await employeeRepo.findByDeviceUserId(device._id, userIdToUid.get(raw));
-    }
+    // eslint-disable-next-line no-await-in-loop
+    const emp = await resolveEmployee(raw);
     if (!emp) { skipped += 1; }
-    // Persist the raw punch regardless of match — audit trail of every tap.
-    try {
-      await DevicePunch.updateOne(
-        { device: device._id, deviceUserId: raw, punchAt: new Date(p.timestamp) },
-        {
+
+    // Queue the DevicePunch audit row — deduped by the collection's unique
+    // (device, deviceUserId, punchAt) index, so replaying a cycle is safe.
+    punchOps.push({
+      updateOne: {
+        filter: { device: device._id, deviceUserId: raw, punchAt: new Date(p.timestamp) },
+        update: {
           $setOnInsert: {
             device: device._id,
             deviceUserId: raw,
@@ -468,11 +681,9 @@ const importAttendance = async (deviceId, { clearAfter = false } = {}) => {
             matched: !!emp,
           },
         },
-        { upsert: true }
-      );
-    } catch (err) {
-      logger.warn(`[biometric] DevicePunch log failed: ${err.message}`);
-    }
+        upsert: true,
+      },
+    });
     if (!emp) continue;
 
     // Gate — ignore stale device history. Reject punches that happened
@@ -491,11 +702,13 @@ const importAttendance = async (deviceId, { clearAfter = false } = {}) => {
     // where getUsers().fingerCount always reports 0 (node-zklib can't read
     // the template count field they use).
     if (emp.fingerprintStatus !== FINGERPRINT_STATUS.ENROLLED) {
+      // eslint-disable-next-line no-await-in-loop
       await employeeRepo.setFingerprintStatus(emp._id, FINGERPRINT_STATUS.ENROLLED, 1);
       emp.fingerprintStatus = FINGERPRINT_STATUS.ENROLLED;
       logger.info(`[biometric] auto-enrolled ${emp.fullName} (${emp.employeeId}) on first verified punch.`);
     }
 
+    // eslint-disable-next-line no-await-in-loop
     const { doc, event } = await attendanceRepo.upsertPunch({
       employeeId: emp._id,
       deviceId: device._id,
@@ -506,12 +719,53 @@ const importAttendance = async (deviceId, { clearAfter = false } = {}) => {
       punchAt: p.timestamp,
     });
     if (!lastAt || p.timestamp > lastAt) lastAt = p.timestamp;
-    emp.lastAttendance = p.timestamp;
-    await emp.save().catch(() => {});
+    // Track newest timestamp per employee — flushed in a single bulkWrite
+    // once the loop finishes (used to be one User.save() per punch).
+    const prev = lastAttPerEmp.get(String(emp._id));
+    if (!prev || p.timestamp > prev) lastAttPerEmp.set(String(emp._id), p.timestamp);
     imported += 1;
+    // Broadcast the newly-recorded punch so the dashboard updates without
+    // polling. Delivery is best-effort — if socket.io isn't initialised
+    // this is a no-op.
+    realtime.emit('attendance-created', {
+      employeeId: String(emp._id),
+      employeeName: emp.fullName,
+      device: { id: String(device._id), name: device.name, ip: device.ip },
+      timestamp: p.timestamp,
+      status: event || p.checkType || null,
+      checkType: p.checkType,
+      verificationMode: p.verificationMode,
+    });
     if (event === 'CHECK_IN' || event === 'CHECK_OUT') {
       // Fire and forget — never block the import loop on notification delivery.
       notifyAdminsOfPunch({ employee: emp, event, punchAt: p.timestamp, device, doc });
+    }
+  }
+
+  // -------- Batch flush: DevicePunch audit + User.lastAttendance --------
+  if (punchOps.length > 0) {
+    try {
+      await DevicePunch.bulkWrite(punchOps, { ordered: false });
+    } catch (err) {
+      // Duplicate-key errors are expected when replaying (the unique index
+      // enforces one row per physical tap); other errors just log.
+      if (err.code !== 11000) {
+        logger.warn(`[biometric] DevicePunch bulkWrite: ${err.message}`);
+      }
+    }
+  }
+  if (lastAttPerEmp.size > 0) {
+    const userOps = [];
+    for (const [id, ts] of lastAttPerEmp) {
+      userOps.push({
+        updateOne: {
+          filter: { _id: id },
+          update: { $set: { lastAttendance: new Date(ts) } },
+        },
+      });
+    }
+    try { await User.bulkWrite(userOps, { ordered: false }); } catch (err) {
+      logger.warn(`[biometric] User lastAttendance bulkWrite: ${err.message}`);
     }
   }
   await deviceRepo.updateTelemetry(device._id, {
@@ -528,7 +782,28 @@ const importAttendance = async (deviceId, { clearAfter = false } = {}) => {
       logger.warn(`[biometric] clearAttendance failed after import: ${err.message}`);
     }
   }
-  return { imported, skipped, total: punches.length, lastAt };
+    const result = { imported, skipped, total: punches.length, lastAt };
+    realtime.emit('attendance-import-finished', {
+      deviceId: String(device._id),
+      name: device.name,
+      ...result,
+      at: new Date(),
+    });
+    return result;
+  } catch (err) {
+    // Surface import failures via socket so the UI can show a toast.
+    realtime.emit('attendance-import-failed', {
+      deviceId: String(device._id),
+      name: device.name,
+      error: err.message,
+      at: new Date(),
+    });
+    throw err;
+  } finally {
+    // ALWAYS release the lock, even on throw — that's the whole point of
+    // acquiring it inside a try/finally block.
+    release();
+  }
 };
 
 /** Import users from the device into HRMS (best-effort — reports orphan device rows). */

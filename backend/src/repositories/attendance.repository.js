@@ -16,19 +16,22 @@
  */
 const Attendance = require('../models/Attendance');
 const User = require('../models/User');
+const dayjs = require('dayjs');
 // Explicitly registered so ad-hoc callers (scripts, controllers that only
 // require this repo) can safely do `User.populate('shift')` even when the
 // Shift model hasn't been touched elsewhere in the process.
 require('../models/Shift');
-const { startOfDay, diffMinutes, resolveShiftAnchorDate } = require('../utils/date');
+const { startOfDay, diffMinutes, resolveShiftAnchorDate, evaluateShiftLateness } = require('../utils/date');
 const { ATTENDANCE_METHOD, ATTENDANCE_STATUS, CHECK_TYPE } = require('../config/constants');
 
 // Maximum age (in hours) an "open" shift is allowed to remain claimable by a
 // subsequent punch. This exists purely as a safety net for a forgotten
 // clock-out — without it, a stale row from days ago would silently consume
-// the next real check-in as a check-out. Covers any realistic overnight
-// shift; anything longer must be corrected via the manual adjust endpoint.
-const OPEN_SHIFT_MAX_HOURS = 24;
+// the next real check-in as a check-out. Bumped to 36 h so overnight
+// shifts that start at 22:00 and clock out the next morning still resolve
+// cleanly even if the last activity anchor is the initial device-in.
+// Anything longer must be corrected via the manual adjust endpoint.
+const OPEN_SHIFT_MAX_HOURS = 36;
 
 /**
  * Ensure `sessions` is an array so callers can operate on it uniformly.
@@ -50,17 +53,71 @@ const _computeSessionMinutes = (s) => {
   return Math.max(0, diffMinutes(s.clockIn, s.clockOut));
 };
 
+// -------------------------------------------------------------------
+// Shift snapshot helpers.
+//
+// A row's `shiftStart` / `shiftEnd` are stored on the row itself at open
+// time so reports / early-out / overtime maths never have to re-populate
+// the Shift model and never drift if the employee's shift changes later.
+// Both are absolute Date instances anchored to the row's `date`.
+// -------------------------------------------------------------------
+const _computeShiftBounds = (shift, anchorDate) => {
+  if (!shift || !shift.startTime || !shift.endTime || !anchorDate) return null;
+  const [sh, sm] = String(shift.startTime).split(':').map(Number);
+  const [eh, em] = String(shift.endTime).split(':').map(Number);
+  if (![sh, sm, eh, em].every(Number.isFinite)) return null;
+  const base = dayjs(anchorDate).startOf('day');
+  const start = base.hour(sh).minute(sm).second(0).millisecond(0);
+  let end = base.hour(eh).minute(em).second(0).millisecond(0);
+  // Overnight shift (end <= start) crosses midnight → end date is next day.
+  if (end.valueOf() <= start.valueOf()) end = end.add(1, 'day');
+  return { shiftStart: start.toDate(), shiftEnd: end.toDate() };
+};
+
+const _resolveLifecycle = (last) => {
+  if (!last) return null;
+  if (last.clockOut) return 'COMPLETED';
+  if (last.deviceCheckOutAt) return 'DEVICE_OUT';
+  if (last.clockIn) return 'CLOCKED_IN';
+  if (last.deviceCheckInAt) return 'DEVICE_IN';
+  return null;
+};
+
 /**
  * Recompute the row's denormalised aggregates from sessions[]. The last
  * session drives the "current state" fields the frontend reads (clockIn,
  * clockOut, deviceCheckInAt, deviceCheckOutAt) so the UI reflects the
  * shift that is ready to act on. workMinutes and lateMinutes are summed
  * across every session so payroll totals stay correct on multi-shift days.
+ *
+ * Also maintains the spec-canonical fields:
+ *   - `attendanceStatus` — DEVICE_IN | CLOCKED_IN | DEVICE_OUT | COMPLETED
+ *   - `isOpen`           — true until the final web Clock Out lands
+ *   - `earlyOutMinutes` / `overtimeMinutes` — computed against `shiftEnd`
+ * so every reader has the same single source of truth.
  */
 const recomputeAggregates = (row) => {
   const s = row.sessions || [];
-  if (s.length === 0) return;
+  if (s.length === 0) {
+    // Legacy row with no sessions[] — leave aggregates but reflect the
+    // openness of the top-level state so `isOpen` is still correct.
+    row.isOpen = !!((row.clockIn && !row.clockOut) || (row.deviceCheckInAt && !row.deviceCheckOutAt));
+    return;
+  }
   const last = s[s.length - 1];
+
+  // Per-session early-out / overtime, recomputed every time so an admin
+  // adjustment or a fresh device tap flows through immediately.
+  if (row.shiftEnd) {
+    for (const seg of s) {
+      const outAt = seg.clockOut || seg.deviceCheckOutAt;
+      if (!outAt) { seg.earlyOutMinutes = 0; seg.overtimeMinutes = 0; continue; }
+      const delta = diffMinutes(row.shiftEnd, outAt); // + = overtime, - = early
+      seg.earlyOutMinutes = delta < 0 ? Math.abs(delta) : 0;
+      seg.overtimeMinutes = delta > 0 ? delta : 0;
+    }
+  }
+
   row.clockIn = last.clockIn || null;
   row.clockOut = last.clockOut || null;
   row.deviceCheckInAt = last.deviceCheckInAt || null;
@@ -68,9 +125,20 @@ const recomputeAggregates = (row) => {
   row.workMinutes = s.reduce((acc, x) => acc + (Number(x.workMinutes) || 0), 0);
   row.isLate = s.some((x) => x.isLate);
   row.lateMinutes = s.reduce((acc, x) => acc + (Number(x.lateMinutes) || 0), 0);
+  row.earlyOutMinutes = s.reduce((acc, x) => acc + (Number(x.earlyOutMinutes) || 0), 0);
+  row.isEarlyOut = row.earlyOutMinutes > 0;
+  row.overtimeMinutes = s.reduce((acc, x) => acc + (Number(x.overtimeMinutes) || 0), 0);
   // Keep checkType consistent with the last session's state — used by the UI
   // to distinguish "in-progress" vs "closed" attendance rows.
   row.checkType = last.deviceCheckOutAt ? CHECK_TYPE.CHECK_OUT : CHECK_TYPE.CHECK_IN;
+
+  // Canonical state-machine + open flag. `isOpen` becomes false ONLY once
+  // the final web Clock Out has landed (COMPLETED). All other states
+  // (DEVICE_IN / CLOCKED_IN / DEVICE_OUT) keep the row claimable by the
+  // primary `{ employee, isOpen: true }` lookup.
+  const life = _resolveLifecycle(last);
+  row.attendanceStatus = life;
+  row.isOpen = life !== 'COMPLETED';
 };
 
 /**
@@ -84,20 +152,124 @@ const recomputeAggregates = (row) => {
  * still being open). Returns null when no open shift exists, or when the
  * only candidate is older than OPEN_SHIFT_MAX_HOURS and treated as stale.
  */
+/**
+ * Self-heal rows corrupted by the LEGACY 6-hour session-window merger.
+ *
+ * The old logic (removed) would spawn a NEW session on the same row when a
+ * device check-out tap arrived >6 h after the last activity — which is
+ * exactly what happens on an overnight shift (e.g. clock-in 22:00, device
+ * check-out 06:00 = 8 h gap). The result was two sessions on one row:
+ *
+ *   [0] { deviceCheckInAt: 22:00, clockIn: 22:00 }   ← real, still open
+ *   [1] { deviceCheckInAt: 06:00 }                   ← PHANTOM: this tap
+ *                                                      was the check-OUT
+ *
+ * Because `recomputeAggregates` mirrors the LAST session, the row's
+ * top-level `clockIn` was wiped to null — so after midnight the frontend
+ * saw an "unclocked" row and offered Clock In again.
+ *
+ * Repair rule (only touches rows that clearly show the polluted pattern —
+ * one session with a web clockIn but no clockOut, followed by one or more
+ * later sessions with ONLY device stamps and no web activity at all):
+ *   - Merge the phantom sessions' device stamps into the open session.
+ *   - The LATEST device stamp across the phantoms becomes the real
+ *     `deviceCheckOutAt` of the open session.
+ *   - Drop the phantom sessions.
+ *
+ * Returns true when the row was mutated (caller should save).
+ */
+const _repairOvernightPhantomSessions = (doc) => {
+  if (!doc || !Array.isArray(doc.sessions) || doc.sessions.length < 2) return false;
+  // Find the earliest session that has a web clockIn but no clockOut — the
+  // "real" open session the user is currently working.
+  const openIdx = doc.sessions.findIndex((s) => s && s.clockIn && !s.clockOut);
+  if (openIdx < 0 || openIdx === doc.sessions.length - 1) return false;
+  const tail = doc.sessions.slice(openIdx + 1);
+  // Every trailing session must be pure device noise (no web activity).
+  const allPhantom = tail.every((s) => s && !s.clockIn && !s.clockOut);
+  if (!allPhantom) return false;
+  const open = doc.sessions[openIdx];
+  // Collect every device stamp from the phantoms; pick the latest as the
+  // real check-out.
+  const stamps = [];
+  for (const s of tail) {
+    if (s.deviceCheckInAt) stamps.push(new Date(s.deviceCheckInAt).getTime());
+    if (s.deviceCheckOutAt) stamps.push(new Date(s.deviceCheckOutAt).getTime());
+  }
+  if (stamps.length === 0) return false;
+  const latest = new Date(Math.max(...stamps));
+  // Only accept the repair if the "check-out" actually postdates the
+  // check-in — otherwise this isn't the overnight-phantom pattern.
+  if (open.deviceCheckInAt && latest <= new Date(open.deviceCheckInAt)) return false;
+  open.deviceCheckOutAt = latest;
+  // Drop the phantoms.
+  doc.sessions = doc.sessions.slice(0, openIdx + 1);
+  return true;
+};
+
 const findOpenForEmployee = async (employeeId) => {
-  const doc = await Attendance.findOne({
-    employee: employeeId,
-    $or: [
-      { clockIn: { $ne: null }, clockOut: null },
-      { deviceCheckInAt: { $ne: null }, deviceCheckOutAt: null },
-    ],
-  }).sort({ date: -1 });
+  // PRIMARY lookup — spec Rule 3: `{ employee, isOpen: true }`. Backed by
+  // the partial index on { employee: 1, isOpen: 1 } so this is a single
+  // b-tree hit. Every row created / mutated after the refactor carries
+  // `isOpen`; the fallback below covers rows that predate the field.
+  let doc = await Attendance.findOne({ employee: employeeId, isOpen: true }).sort({ date: -1 });
+  if (!doc) {
+    // Backward-compat fallback: rows created before `isOpen` existed still
+    // need to be reachable so overnight shifts started under the old
+    // schema keep working across the deploy boundary.
+    doc = await Attendance.findOne({
+      employee: employeeId,
+      $or: [
+        { clockIn: { $ne: null }, clockOut: null },
+        { deviceCheckInAt: { $ne: null }, deviceCheckOutAt: null },
+      ],
+    }).sort({ date: -1 });
+  }
   if (!doc) return null;
-  // Legacy rows with no sessions[] cannot be reopened. Since ensureSessions
-  // no longer migrates top-level clock data into sessions[0], such rows
-  // don't participate in the modern punch flow — a new punch must create a
-  // fresh row for today rather than resurrecting an ancient legacy anchor.
-  if (!Array.isArray(doc.sessions) || doc.sessions.length === 0) return null;
+  // Legacy rows with no sessions[] normally cannot participate in the
+  // modern punch flow. HOWEVER — if such a row is currently OPEN (top-level
+  // clockIn or deviceCheckInAt set with no corresponding out), refusing to
+  // return it strands the shift: a subsequent device check-out (e.g. after
+  // midnight for an overnight shift) has nowhere to land and spawns a new
+  // row for the next calendar day, and the frontend then sees an unclosed
+  // check-in from the current day and offers Clock In again instead of
+  // Clock Out. Migrate JUST the open legacy row into sessions[0] so it
+  // can be closed cleanly. Closed legacy rows (both clockIn AND clockOut,
+  // or both device stamps set) are left untouched so they never resurface
+  // as attendance logs.
+  if (!Array.isArray(doc.sessions) || doc.sessions.length === 0) {
+    const isOpen =
+      (doc.clockIn && !doc.clockOut) ||
+      (doc.deviceCheckInAt && !doc.deviceCheckOutAt);
+    if (!isOpen) return null;
+    doc.sessions = [{
+      clockIn: doc.clockIn || null,
+      clockOut: doc.clockOut || null,
+      deviceCheckInAt: doc.deviceCheckInAt || null,
+      deviceCheckOutAt: doc.deviceCheckOutAt || null,
+      workMinutes: 0,
+      isLate: !!doc.isLate,
+      lateMinutes: Number(doc.lateMinutes) || 0,
+    }];
+    recomputeAggregates(doc);
+    await doc.save();
+  }
+  // Self-heal the overnight-phantom pattern left by the legacy merger so
+  // the top-level aggregates the frontend reads reflect the real open
+  // session (real clockIn, real deviceCheckOutAt) — Rule: after midnight
+  // the app must show Clock Out, never Clock In, once the device check-out
+  // has arrived.
+  if (_repairOvernightPhantomSessions(doc)) {
+    recomputeAggregates(doc);
+    await doc.save();
+  }
+  // Backfill isOpen / attendanceStatus for rows produced before the
+  // canonical fields existed. Idempotent — this is a no-op after the
+  // first save().
+  if (doc.isOpen !== true || !doc.attendanceStatus) {
+    recomputeAggregates(doc);
+    if (doc.isModified()) await doc.save();
+  }
   // Staleness anchor: use the MOST RECENT activity on the last session.
   // Using the oldest (deviceCheckInAt) fails for overnight shifts where the
   // session may have been auto-reopened from ancient device stamps or
@@ -113,87 +285,6 @@ const findOpenForEmployee = async (employeeId) => {
   if (!anchor) return null;
   const ageMs = Date.now() - new Date(anchor).getTime();
   if (ageMs > OPEN_SHIFT_MAX_HOURS * 60 * 60 * 1000) return null;
-  return doc;
-};
-
-// Window inside which a device-side "close" that never got a web clock-in
-// is assumed to be a K40 double-tap and can be auto-reopened by a
-// subsequent web Clock In. Must stay in sync with MIN_SESSION_MS in
-// upsertPunch — anything closer than this could not have been a real shift.
-const AUTO_REOPEN_WINDOW_MS = 15 * 60 * 1000;
-
-/**
- * Find the employee's MOST RECENT attendance row that looks like it was
- * built entirely from K40 auto-toggled punches (the device sent only
- * CHECK_IN-type events, our old logic split them across multiple wrongly-
- * closed sessions, and the user never web-clocked-in on any of them).
- *
- * "Safe to auto-reopen" = the row's most recent device activity is recent
- * (within the last 12 h) AND NO session on the row has a web clockIn or
- * clockOut. Under those two conditions we know the user's intent was to
- * check in — they've been tapping their finger with no web action yet —
- * so we can safely collapse the mess into a single open session anchored
- * at the earliest device-in on the row.
- *
- * Returns { doc, earliestDeviceIn } when the row is safe to auto-reopen,
- * or null.
- */
-const findAutoReopenableForClockIn = async (employeeId) => {
-  const doc = await Attendance.findOne({ employee: employeeId })
-    .sort({ date: -1, updatedAt: -1 });
-  if (!doc || !Array.isArray(doc.sessions) || doc.sessions.length === 0) return null;
-  // Any web activity anywhere on this row means we DO NOT touch it —
-  // reopening would corrupt payroll totals or a prior clocked shift.
-  const anyWebActivity = doc.sessions.some((s) => s.clockIn || s.clockOut);
-  if (anyWebActivity) return null;
-  // Only consider RECENT device stamps (last 12 h). Ancient stamps that
-  // survive from earlier polluted sessions must not be used as the new
-  // anchor — otherwise an auto-reopened session would look like it began
-  // 2 days ago, breaking overnight-shift staleness and lateness logic.
-  const RECENT_WINDOW_MS = 12 * 60 * 60 * 1000;
-  const now = Date.now();
-  const recentStamps = [];
-  for (const s of doc.sessions) {
-    if (s.deviceCheckInAt && now - new Date(s.deviceCheckInAt).getTime() <= RECENT_WINDOW_MS) {
-      recentStamps.push(new Date(s.deviceCheckInAt).getTime());
-    }
-    if (s.deviceCheckOutAt && now - new Date(s.deviceCheckOutAt).getTime() <= RECENT_WINDOW_MS) {
-      recentStamps.push(new Date(s.deviceCheckOutAt).getTime());
-    }
-  }
-  if (recentStamps.length === 0) return null;
-  const earliest = Math.min(...recentStamps);
-  const latest = Math.max(...recentStamps);
-  return { doc, earliestDeviceIn: new Date(earliest), latestDevice: new Date(latest) };
-};
-
-/**
- * Collapse a row's multiple auto-toggle-generated sessions into a single
- * open session anchored at the earliest device check-in. Caller must have
- * obtained the row via `findAutoReopenableForClockIn` (which enforces the
- * "no web activity anywhere" precondition).
- *
- * The web Clock In gate can then attach `clockIn = now()` to this session
- * exactly as if the user had just taken a single clean device punch.
- */
-const reopenLastSessionForClockIn = async (doc, { earliestDeviceIn } = {}) => {
-  if (!doc || !Array.isArray(doc.sessions) || doc.sessions.length === 0) {
-    throw new Error('reopenLastSessionForClockIn: no sessions');
-  }
-  const anchor = earliestDeviceIn || doc.sessions[0].deviceCheckInAt;
-  // Wipe every existing session and rebuild a single open one — safe
-  // because the caller guaranteed no web activity anywhere on the row.
-  doc.sessions = [{
-    deviceCheckInAt: anchor,
-    deviceCheckOutAt: null,
-    clockIn: null,
-    clockOut: null,
-    workMinutes: 0,
-    isLate: false,
-    lateMinutes: 0,
-  }];
-  recomputeAggregates(doc);
-  await doc.save();
   return doc;
 };
 
@@ -252,6 +343,11 @@ const upsertPunch = async ({
     const employee = await User.findById(employeeId).populate('shift').lean();
     const shift = employee ? employee.shift : null;
     const date = resolveShiftAnchorDate(punchAt, shift);
+    // Snapshot the shift onto the row at open time — spec: shiftStart /
+    // shiftEnd should live on the attendance row so reports + late /
+    // early-out / overtime maths don't depend on the employee's current
+    // shift assignment (which may change later).
+    const bounds = _computeShiftBounds(shift, date);
     doc = await Attendance.findOneAndUpdate(
       { employee: employeeId, date },
       {
@@ -261,6 +357,11 @@ const upsertPunch = async ({
           device: deviceId,
           deviceUserId,
           terminal,
+          // spec-canonical state fields — set ONCE at row creation
+          isOpen: true,
+          attendanceStatus: 'DEVICE_IN',
+          ...(shift ? { shift: shift._id } : {}),
+          ...(bounds ? { shiftStart: bounds.shiftStart, shiftEnd: bounds.shiftEnd } : {}),
         },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -279,35 +380,37 @@ const upsertPunch = async ({
   doc.devicePunchAt = punchDate;
   doc.method = ATTENDANCE_METHOD.FINGERPRINT;
 
-  // 4) K40 sends every tap as `checkType: CHECK_IN` unless the user
-  //    physically presses F4 first — which nobody does. So we can NOT
-  //    infer intent (check-in vs check-out) from the tap itself. The
-  //    working model is instead:
+  // 4) STRICT FLOW (no exceptions):
   //
-  //      * First tap of a shift → opens a session (deviceCheckInAt).
-  //      * Every subsequent tap within SESSION_WINDOW_MS of the last
-  //        activity on that session (either the check-in or the current
-  //        check-out) is treated as "still the same shift" — we just
-  //        slide deviceCheckOutAt forward to the latest tap. Missed taps,
-  //        double-taps, and "did it register?" retaps all collapse into
-  //        one session naturally.
-  //      * A tap that arrives AFTER SESSION_WINDOW_MS of quiet time is a
-  //        genuine new shift — opens a fresh session on the same day.
-  //      * An explicit CHECK_OUT/OVERTIME_OUT (F4 was pressed) closes the
-  //        current session immediately regardless of gap.
-  //      * Duplicate replays from the poller (same timestamp already
-  //        processed) are silently no-ops.
-  const isExplicitOut =
-    checkType === CHECK_TYPE.CHECK_OUT || checkType === CHECK_TYPE.OVERTIME_OUT;
-  const SESSION_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 h — one shift's worth
+  //      Device Check-In  →  App Clock-In  →  Device Check-Out  →  App Clock-Out
+  //
+  //    Because the K40 sends every tap as `checkType: CHECK_IN` unless F4
+  //    was pressed, we CANNOT rely on the tap kind. Instead the session's
+  //    own state decides what a new tap means:
+  //
+  //      * No last session (or last session fully closed on the device):
+  //          → the tap OPENS a new session (deviceCheckInAt).
+  //      * Last session has deviceCheckInAt but NO deviceCheckOutAt (open):
+  //          → the tap CLOSES it (deviceCheckOutAt = punchDate) regardless
+  //            of how long ago the check-in happened. This is what fixes
+  //            overnight shifts — a 22:00 → 07:00 pair is 9 h apart and
+  //            must still resolve to a single closed session.
+  //      * Duplicate replay from the poller (identical timestamp already
+  //        recorded on this session) → silent no-op.
+  //      * Retro / out-of-order tap that predates the current open
+  //        check-in → treated as an earlier check-in anchor (lateness
+  //        stays honest) but does not close the session.
+  //
+  //    Rapid-fire retaps within RETAP_WINDOW_MS of the current session's
+  //    check-in (before the user has web-clocked-in) are still coalesced
+  //    as duplicates so a "did that register?" second tap does not
+  //    immediately close the session the user just opened.
+  const RETAP_WINDOW_MS = 60 * 1000; // 60 s — physical retap window
   const lastIdx = doc.sessions.length - 1;
   const last = lastIdx >= 0 ? doc.sessions[lastIdx] : null;
   const lastActivity = last
     ? (last.deviceCheckOutAt || last.deviceCheckInAt || null)
     : null;
-  const gapMs = lastActivity
-    ? punchDate.getTime() - new Date(lastActivity).getTime()
-    : Infinity;
 
   // Duplicate replay from the poller — same tap already processed.
   if (last && lastActivity && punchDate.getTime() === new Date(lastActivity).getTime()) {
@@ -316,40 +419,65 @@ const upsertPunch = async ({
 
   let event = 'DUPLICATE';
 
-  if (!last) {
-    // Empty row — open the first session of the day.
-    doc.sessions.push({ deviceCheckInAt: punchDate });
-    event = 'CHECK_IN';
-  } else if (isExplicitOut && last.deviceCheckInAt && !last.deviceCheckOutAt) {
-    // User pressed F4 before tapping → close the open session now.
-    last.deviceCheckOutAt = punchDate;
-    event = 'CHECK_OUT';
-  } else if (!last.clockIn && gapMs >= 0 && gapMs <= SESSION_WINDOW_MS) {
-    // *** BEFORE web clockIn ***  The user is still in the "punched but not
-    // yet clocked in on the web" phase. Every subsequent tap in this phase
-    // is either a "did that register?" retap or a delayed second attempt.
-    // We treat them all as duplicates — the session stays OPEN
-    // (deviceCheckOutAt untouched) so the web Clock In gate can attach.
-    // We keep the EARLIEST tap as the check-in anchor so lateness is
-    // computed against the true arrival time.
-    if (punchDate < new Date(last.deviceCheckInAt)) {
-      last.deviceCheckInAt = punchDate;
+  // -------- Rule 8: late is computed ONCE, at DEVICE_IN, against the
+  // snapshotted shiftStart. Applied on any code path that opens a new
+  // session so the aggregate `lateMinutes` is present BEFORE the user
+  // web-clocks in. `evaluateShiftLateness` uses the shift start-time to
+  // reconstruct the expected moment on the row's anchor date, so overnight
+  // shifts are evaluated correctly.
+  const _stampDeviceInLateness = (session) => {
+    if (!session || !doc.shift) return;
+    // Idempotent: never overwrite a previously-computed value.
+    if (Number(session.lateMinutes) > 0 || session.isLate === true) return;
+    // Prefer the row's snapshotted shift bounds; fall back to a synthetic
+    // shift object for the pure evaluator when only shiftStart is present
+    // (e.g. legacy rows migrated in-flight).
+    let shiftLike = null;
+    if (doc.shiftStart) {
+      const d = new Date(doc.shiftStart);
+      shiftLike = { startTime: `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`, graceMinutes: 0 };
     }
-    event = 'DUPLICATE';
-  } else if (last.clockIn && gapMs >= 0 && gapMs <= SESSION_WINDOW_MS) {
-    // *** AFTER web clockIn ***  User has already clocked in on the web.
-    // A subsequent tap is their "leaving" punch → slide device-out to the
-    // latest tap. Multiple taps around leaving time all collapse cleanly.
-    if (punchDate > new Date(last.deviceCheckInAt)) {
+    if (!shiftLike) return;
+    const { isLate, lateMinutes } = evaluateShiftLateness(shiftLike, session.deviceCheckInAt, doc.date);
+    session.isLate = isLate;
+    session.lateMinutes = lateMinutes;
+  };
+
+  if (!last || (last.deviceCheckInAt && last.deviceCheckOutAt)) {
+    // No sessions yet, or last session is fully closed on the device
+    // → this tap starts a new session.
+    doc.sessions.push({ deviceCheckInAt: punchDate });
+    _stampDeviceInLateness(doc.sessions[doc.sessions.length - 1]);
+    event = 'CHECK_IN';
+  } else if (last.deviceCheckInAt && !last.deviceCheckOutAt) {
+    // Session is OPEN on the device. Any subsequent tap closes it.
+    const checkInMs = new Date(last.deviceCheckInAt).getTime();
+    const gapMs = punchDate.getTime() - checkInMs;
+
+    if (gapMs < 0) {
+      // Retro tap that predates the current check-in → shift the anchor
+      // earlier (protects lateness against out-of-order imports) and stop.
+      last.deviceCheckInAt = punchDate;
+      // Re-stamp lateness against the earlier anchor. Reset first so the
+      // idempotency guard inside `_stampDeviceInLateness` doesn't skip.
+      last.isLate = false;
+      last.lateMinutes = 0;
+      _stampDeviceInLateness(last);
+      event = 'DUPLICATE';
+    } else if (gapMs <= RETAP_WINDOW_MS && !last.clockIn) {
+      // Rapid "did that register?" retap before the user has web
+      // clocked-in — treat as duplicate; do NOT close the session.
+      event = 'DUPLICATE';
+    } else {
+      // Genuine check-out tap — close the session regardless of gap.
       last.deviceCheckOutAt = punchDate;
       event = 'CHECK_OUT';
     }
-  } else if (gapMs < 0) {
-    // Retro import — safe fallback is to no-op.
-    return { doc, event: 'DUPLICATE' };
   } else {
-    // Genuine long-gap punch → new session (second shift on same day).
+    // Defensive fallback: sessions[] is in an unexpected shape (e.g.
+    // deviceCheckOutAt set but no deviceCheckInAt). Start a fresh session.
     doc.sessions.push({ deviceCheckInAt: punchDate });
+    _stampDeviceInLateness(doc.sessions[doc.sessions.length - 1]);
     event = 'CHECK_IN';
   }
 
@@ -364,8 +492,6 @@ module.exports = {
   listByFilter,
   upsertPunch,
   findOpenForEmployee,
-  findAutoReopenableForClockIn,
-  reopenLastSessionForClockIn,
   ensureSessions,
   recomputeAggregates,
 };

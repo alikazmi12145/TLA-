@@ -31,4 +31,9 @@ targetSchema.virtual('completion').get(function () {
 targetSchema.set('toJSON', { virtuals: true });
 targetSchema.set('toObject', { virtuals: true });
 
+// Sweep query: expire PENDING rows past their period end.
+targetSchema.index({ status: 1, periodEnd: 1 });
+// Per-employee task list: status + newest first.
+targetSchema.index({ employee: 1, status: 1, periodEnd: -1 });
+
 module.exports = mongoose.model('Target', targetSchema);

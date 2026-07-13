@@ -49,11 +49,18 @@ import NotFoundPage from './pages/NotFoundPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import RoleRoute from './components/auth/RoleRoute';
 import { ROLES } from './lib/constants';
+import { useRealtimeBridge } from './hooks/useRealtimeBridge';
 
 export default function App() {
   const isAuthed = useSelector(selectIsAuthed);
   const role = useSelector(selectRole);
   const dispatch = useDispatch();
+
+  // Push-driven cache invalidation. Keeps notifications / attendance /
+  // devices fresh WITHOUT the aggressive per-page polling that used to
+  // hit the API every few seconds. Mounted once at the app root so
+  // navigating between pages never creates a second socket.
+  useRealtimeBridge();
 
   useEffect(() => {
     if (!isAuthed) return;
