@@ -27,10 +27,19 @@ module.exports = {
       autorestart: true,
       watch: false,
 
+      // Cap V8's old-space heap explicitly at ~768 MB. This makes V8 do a
+      // full GC BEFORE PM2 kills the process on the RSS ceiling — so a
+      // legitimate spike (large payroll run, big attendance import) has
+      // headroom to breathe instead of triggering a restart-storm. RSS
+      // will settle around old-space + young-space + native modules
+      // (node-zklib's TCP buffers) — comfortably under `max_memory_restart`.
+      node_args: ['--max-old-space-size=768'],
+
       // Restart the process if RSS exceeds this ceiling. Guards against a
-      // slow leak leading to OOM-kill by the kernel. 700 MB fits a 1 GB VPS
-      // with headroom for the OS + MongoDB driver.
-      max_memory_restart: '700M',
+      // slow leak leading to OOM-kill by the kernel. 1 GB with the 768 MB
+      // old-space cap gives 256 MB for native / young-gen / buffers on a
+      // 4 GB VPS running Node + MongoDB side-by-side.
+      max_memory_restart: '1024M',
 
       // Cap restart storms — if the process crashes 10 times in <60s, stop
       // trying so we don't chew CPU. `pm2 restart tla-hrms-api` clears it.

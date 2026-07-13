@@ -523,7 +523,29 @@ const refreshAllFingerprintStatuses = async (deviceId, { onlyNotEnrolled = false
   if (onlyNotEnrolled) {
     employees = employees.filter((e) => e.fingerprintStatus !== FINGERPRINT_STATUS.ENROLLED);
   }
+
+  // ------------------------------------------------------------------
+  // Batch the per-employee "has a matched punch since createdAt?" check
+  // into ONE aggregation call. The previous code fired
+  // `DevicePunch.exists()` inside the loop — an N+1 that ran every 60s
+  // poll cycle for every employee not yet marked ENROLLED.
+  // ------------------------------------------------------------------
+  const empIds = employees.map((e) => e._id);
+  const lastPunchByEmp = new Map();
+  if (empIds.length > 0) {
+    const rows = await DevicePunch.aggregate([
+      { $match: { employee: { $in: empIds }, matched: true } },
+      { $group: { _id: '$employee', lastPunch: { $max: '$punchAt' } } },
+    ]);
+    for (const r of rows) lastPunchByEmp.set(String(r._id), r.lastPunch);
+  }
+
+  // Collect updates and flush them as a single bulkWrite at the end so
+  // the poll cycle produces one Mongo round-trip instead of one per
+  // changed employee.
+  const empOps = [];
   let updated = 0;
+
   for (const emp of employees) {
     const row = byId.get(String(emp.deviceUserId));
     if (!row) continue;
@@ -535,22 +557,27 @@ const refreshAllFingerprintStatuses = async (deviceId, { onlyNotEnrolled = false
     // Fallback proof: a successful device punch means the K40 verified this
     // employee's finger, which is definitive proof of enrolment even when
     // fingerCount is stuck at 0 on this firmware.
-    const cutoff = emp.createdAt;
-    // eslint-disable-next-line no-await-in-loop
-    const punchExists = await DevicePunch.exists({
-      employee: emp._id,
-      matched: true,
-      ...(cutoff ? { punchAt: { $gte: new Date(cutoff) } } : {}),
-    });
+    const cutoff = emp.createdAt ? new Date(emp.createdAt).getTime() : 0;
+    const lastPunch = lastPunchByEmp.get(String(emp._id));
+    const punchExists = lastPunch && (!cutoff || new Date(lastPunch).getTime() >= cutoff);
+
     const status = (newFingers > 0 || punchExists)
       ? FINGERPRINT_STATUS.ENROLLED
       : FINGERPRINT_STATUS.NOT_ENROLLED;
     const displayCount = Math.max(newFingers, punchExists ? 1 : 0);
     if (emp.fingerprintStatus !== status || emp.fingerCount !== displayCount) {
-      // eslint-disable-next-line no-await-in-loop
-      await employeeRepo.setFingerprintStatus(emp._id, status, displayCount);
+      empOps.push({
+        updateOne: {
+          filter: { _id: emp._id },
+          update: { $set: { fingerprintStatus: status, fingerCount: displayCount } },
+        },
+      });
       updated += 1;
     }
+  }
+  if (empOps.length > 0) {
+    try { await User.bulkWrite(empOps, { ordered: false }); }
+    catch (err) { logger.warn(`[biometric] fingerprint refresh bulkWrite: ${err.message}`); }
   }
   return { total: employees.length, updated };
 };

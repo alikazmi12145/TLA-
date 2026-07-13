@@ -27,10 +27,12 @@ const logger = require('../utils/logger');
 const { CHECK_TYPE, VERIFICATION_MODE, DEVICE_CONN_TYPE } = require('../config/constants');
 const { patchZKLibInstance } = require('./zklib-safe');
 
-// Bump the global EventEmitter cap. node-zklib attaches multiple
-// short-lived listeners per request; the default of 10 produces spurious
-// MaxListenersExceededWarning noise even on healthy sockets.
-require('events').EventEmitter.defaultMaxListeners = 50;
+// NOTE: we deliberately do NOT bump `EventEmitter.defaultMaxListeners`
+// globally — that would silently mask leaks in third-party emitters
+// (mongoose, socket.io, node internals). node-zklib's short-lived
+// per-request listeners are handled at the correct scope by
+// `patchZKLibInstance` which calls `socket.setMaxListeners(50)` on the
+// specific TCP/UDP socket it opens. Leave the process-wide default at 10.
 
 const MOCK = String(process.env.BIOMETRIC_MOCK || '').toLowerCase() === 'true';
 const DEFAULT_TIMEOUT = Number(process.env.BIOMETRIC_TIMEOUT_MS || 8000);
@@ -181,6 +183,9 @@ const tearDown = (device, reason) => {
       zk.zklibUdp.socket = null;
     }
   } catch { /* ignore */ }
+  // Drop the users cache too — a fresh connection can legitimately see a
+  // different roster (device was rebooted, users edited on the panel, etc).
+  try { usersCache.delete(keyOf(device)); } catch { /* ignore */ }
   if (reason) {
     logger.warn(`[biometric] tore down ${keyOf(device)}: ${reason}`);
   }
@@ -469,6 +474,9 @@ const createUser = async (device, { uid, userId, name, privilege = 0, password =
     await h.executeCmd(CMD.USER_WRQ, payload);
     // Ask the device to refresh its data cache so the new user is visible immediately.
     try { await h.executeCmd(CMD.REFRESHDATA, ''); } catch { /* refresh is optional */ }
+    // Roster changed — drop the cached user list so the next getUsers()
+    // call returns fresh data instead of a stale snapshot.
+    _invalidateUsersCache(device);
   });
 };
 
@@ -478,12 +486,14 @@ const updateUser = (device, user) => createUser(device, user);
 const deleteUser = async (device, uid) => exec(device, 'deleteUser', DEFAULT_TIMEOUT, async (h) => {
   if (h.mock) {
     getMock(device).users.delete(String(uid));
+    _invalidateUsersCache(device);
     return;
   }
   const buf = Buffer.alloc(2);
   buf.writeUInt16LE(Number(uid) & 0xffff, 0);
   await h.executeCmd(CMD.DELETE_USER, buf);
   try { await h.executeCmd(CMD.REFRESHDATA, ''); } catch { /* optional */ }
+  _invalidateUsersCache(device);
 });
 
 // ZKTeco K40 has no direct per-user enable/disable command via CMD_USER_WRQ.
@@ -516,10 +526,36 @@ const disableUser = async (device, uid) => {
   return deleteUser(device, uid);
 };
 
-/** Read the enrolled user roster back from the device. Non-throwing: returns [] on failure. */
-const getUsers = async (device) => {
+/**
+ * Read the enrolled user roster back from the device. Non-throwing: returns [] on failure.
+ *
+ * Cached for `USERS_CACHE_TTL_MS` per device. The biometric poller calls
+ * `getUsers()` from BOTH `importAttendance` (to build the userId→uid
+ * fallback map) and `refreshAllFingerprintStatuses` — without this cache
+ * every poll cycle fired the roster round-trip twice. Any mutation that
+ * changes the roster (`createUser` / `updateUser` / `deleteUser` /
+ * `restart` / `clearAttendance`) invalidates the cache immediately via
+ * `_invalidateUsersCache(device)`, so callers still see fresh data after
+ * an admin syncs an employee.
+ *
+ * Passing `{ force: true }` bypasses the cache for the rare code paths
+ * that MUST see live device state (e.g. bulk sync diff).
+ */
+const USERS_CACHE_TTL_MS = Number(process.env.ZKTECO_USERS_CACHE_MS || 60_000);
+const usersCache = new Map(); // key -> { at, users }
+
+const _invalidateUsersCache = (device) => {
+  usersCache.delete(keyOf(device));
+};
+
+const getUsers = async (device, { force = false } = {}) => {
+  const key = keyOf(device);
+  if (!force) {
+    const hit = usersCache.get(key);
+    if (hit && Date.now() - hit.at < USERS_CACHE_TTL_MS) return hit.users;
+  }
   try {
-    return await exec(device, 'getUsers', DEFAULT_TIMEOUT * 2, async (h) => {
+    const users = await exec(device, 'getUsers', DEFAULT_TIMEOUT * 2, async (h) => {
       if (h.mock) {
         return [...getMock(device).users.values()].map((u) => ({
           uid: u.uid,
@@ -541,6 +577,8 @@ const getUsers = async (device) => {
           fingerCount: Number(u.fingerCount ?? u.templates ?? 0),
         }));
     });
+    usersCache.set(key, { at: Date.now(), users });
+    return users;
   } catch (err) {
     logger.warn(`[biometric] getUsers(${keyOf(device)}) failed: ${err.message}`);
     return [];
@@ -676,6 +714,7 @@ const pruneStale = async (activeKeys) => {
     // Also drop the mock in-memory store for this key so BIOMETRIC_MOCK
     // mode doesn't accumulate stale user/log arrays forever.
     mockStore.delete(k);
+    usersCache.delete(k);
     logger.info(`[biometric] pruned stale connection cache for ${k}`);
   }
   return stale.length;

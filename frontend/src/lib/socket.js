@@ -13,13 +13,27 @@
 import { io } from 'socket.io-client';
 import { store } from '../app/store';
 
-// Derive the socket URL from VITE_API_URL. The API mounts under `/api/v1`
-// but socket.io lives at the server root, so strip the path portion.
+// Resolve the socket.io endpoint.
+//
+//   - In dev, `VITE_API_URL` is usually unset (the app uses Vite's proxy
+//     for /api and /socket.io). We return `undefined` so socket.io-client
+//     targets the current window origin (http://localhost:5173) — Vite's
+//     `ws: true` proxy then forwards the WS upgrade to the backend.
+//   - In prod, either `VITE_API_URL` is baked into the bundle (points at
+//     the API origin) OR the frontend is served from the same host as the
+//     API and same-origin works out of the box.
+//
+// The API mounts under `/api/v1` but socket.io lives at the server root,
+// so we strip the path portion of `VITE_API_URL` before use.
 const deriveOrigin = () => {
   const raw = import.meta.env.VITE_API_URL || '';
-  if (!raw) return undefined; // same-origin
+  if (!raw) return undefined; // same-origin (dev: via Vite proxy; prod: co-hosted)
   try {
     const u = new URL(raw, window.location.origin);
+    // If VITE_API_URL is a relative path (e.g. "/api/v1") the URL will
+    // resolve to the current window origin — which is exactly what we
+    // want; return undefined so socket.io-client uses the default.
+    if (u.origin === window.location.origin) return undefined;
     return `${u.protocol}//${u.host}`;
   } catch {
     return undefined;
