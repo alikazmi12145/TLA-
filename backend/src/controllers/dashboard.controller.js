@@ -12,17 +12,21 @@ const Commission = require('../models/Commission');
 const { ROLES, ATTENDANCE_STATUS, FINGERPRINT_STATUS, SYNC_STATUS } = require('../config/constants');
 
 // A row counts as "present" as soon as it has at least one session with
-// a real Clock-In — regardless of whether the employee has clocked out
-// yet. This keeps the "Present Today" tile accurate throughout the work
-// day (previously it required a fully closed session, so anyone still
-// on-shift showed as 0 until they punched out). Stray device-only rows
-// with no clockIn are still excluded, matching the Attendance log which
-// hides device-only / partial rows.
+// EITHER a web Clock-In OR a biometric device check-in. Some employees
+// only punch the fingerprint device and never hit the web "Clock In"
+// button, so requiring `clockIn` alone under-counts them. We still
+// exclude completely empty sessions so stray placeholder rows don't
+// inflate the tile.
 const HAS_OPEN_OR_CLOSED_SESSION = {
-  sessions: { $elemMatch: { clockIn: { $ne: null } } },
+  sessions: {
+    $elemMatch: {
+      $or: [{ clockIn: { $ne: null } }, { deviceCheckInAt: { $ne: null } }],
+    },
+  },
 };
 const isPresentAttendance = (a) =>
-  Array.isArray(a?.sessions) && a.sessions.some((s) => s && s.clockIn);
+  Array.isArray(a?.sessions) &&
+  a.sessions.some((s) => s && (s.clockIn || s.deviceCheckInAt));
 
 exports.adminSummary = asyncHandler(async (_req, res) => {
   const today = startOfDay();
@@ -170,7 +174,12 @@ exports.departmentPerformance = asyncHandler(async (_req, res) => {
                             $filter: {
                               input: { $ifNull: ['$$a.sessions', []] },
                               as: 's',
-                              cond: { $ne: ['$$s.clockIn', null] },
+                              cond: {
+                                $or: [
+                                  { $ne: ['$$s.clockIn', null] },
+                                  { $ne: ['$$s.deviceCheckInAt', null] },
+                                ],
+                              },
                             },
                           },
                         },
