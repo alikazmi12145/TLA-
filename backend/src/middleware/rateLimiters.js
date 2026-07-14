@@ -88,13 +88,28 @@ const authLoginLimiter = build({ windowMs: 60 * 1000, max: LOGIN_MAX });
 const authOtpLimiter = build({ windowMs: 15 * 60 * 1000, max: 3 });
 
 // 100 anonymous requests per 15 minutes per IP.
-const publicLimiter = build({ windowMs: 15 * 60 * 1000, max: 100 });
+//
+// Every /api hit passes through this baseline limiter. In a NAT'd office
+// where 5-10 employees share ONE public IP, the combined initial page-load
+// bursts + background polling (notifications every 60s, attendance every
+// 60s, etc.) blow past 100/15min in a few minutes and everyone starts
+// getting 429s on unrelated endpoints. Raised the default to 1000 and
+// made it env-tunable so it can be tightened on public-facing deploys.
+const PUBLIC_MAX = Number(process.env.PUBLIC_RATE_MAX) || 1000;
+const publicLimiter = build({ windowMs: 15 * 60 * 1000, max: PUBLIC_MAX });
 
-// 300 authenticated requests per 15 minutes per IP (baseline API traffic).
-const userLimiter = build({ windowMs: 15 * 60 * 1000, max: 300 });
+// Authenticated user traffic — same rationale as publicLimiter but higher
+// still because each tab polls several endpoints on a 60 s cadence. With
+// 10 employees in the office × 4 open tabs × 60 s polling for 15 min that
+// is already 600 requests without a single navigation.
+const USER_MAX = Number(process.env.USER_RATE_MAX) || 2000;
+const userLimiter = build({ windowMs: 15 * 60 * 1000, max: USER_MAX });
 
-// 500 admin requests per 15 minutes per IP — covers device / payroll / report ops.
-const adminLimiter = build({ windowMs: 15 * 60 * 1000, max: 500 });
+// Admin-heavy operations (device sync, payroll runs, reports). Bulk
+// endpoints frequently issue several dozen requests in a burst, so the
+// admin bucket is 50 % higher than the user one.
+const ADMIN_MAX = Number(process.env.ADMIN_RATE_MAX) || 3000;
+const adminLimiter = build({ windowMs: 15 * 60 * 1000, max: ADMIN_MAX });
 
 module.exports = {
   skipInternal,
