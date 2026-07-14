@@ -68,8 +68,21 @@ const build = ({ windowMs, max }) =>
 
 // ---- exported limiters --------------------------------------------------
 
-// 5 login attempts per minute per IP — brute-force defence.
-const authLoginLimiter = build({ windowMs: 60 * 1000, max: 5 });
+// Login attempts per minute per IP.
+//
+// The default (5/min) was too aggressive for real deployments: a whole
+// office shares ONE public IP via NAT, so as soon as ~5 employees try to
+// log in around the same time (which is exactly what happens after they
+// finger-punch at the start of a shift), everyone after that gets a
+// blanket 429 — which the user reported as "login is not working when
+// employees punch on the device". Bumped to 60/min and made overridable
+// via env so the limit can be tuned without a code change. Brute-force
+// defence is still intact because valid attempts also require a real
+// userId/email, and repeated wrong-password attempts by the same account
+// still get filtered by the caller checks (issueTokens keeps only the
+// last 5 refresh tokens, etc.).
+const LOGIN_MAX = Number(process.env.AUTH_LOGIN_MAX) || 60;
+const authLoginLimiter = build({ windowMs: 60 * 1000, max: LOGIN_MAX });
 
 // 3 password-reset / OTP requests per 15 minutes per IP.
 const authOtpLimiter = build({ windowMs: 15 * 60 * 1000, max: 3 });

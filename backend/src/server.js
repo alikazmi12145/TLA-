@@ -62,28 +62,39 @@ const sweepExpiredTargets = async () => {
  * `zkteco.service`, this makes duplicate imports impossible.
  */
 let _biometricPollInFlight = false;
+// Fingerprint enrolment is rare — running getUsers() on the device every
+// single poll cycle (i.e. every 60s) doubles the number of slow K40 round
+// trips per minute for no practical benefit. Refresh only every Nth cycle;
+// with the default 60s poll cadence, N=10 → once every ~10 minutes.
+let _pollCycleCount = 0;
+const FINGERPRINT_REFRESH_EVERY_N_CYCLES = Number(process.env.FINGERPRINT_REFRESH_EVERY) || 10;
 const pollBiometricDevices = async () => {
   if (_biometricPollInFlight) return;
   if (_shuttingDown) return;
   _biometricPollInFlight = true;
+  const cycle = ++_pollCycleCount;
   try {
     const devices = await Device.find({ enabled: true }).select('_id name');
-    for (const d of devices) {
-      if (_shuttingDown) break;
+    // Devices are independent (each has its own attendanceLock + its own
+    // TCP socket), so we run them in parallel. On single-device deploys
+    // (the common case) this is a no-op; on multi-device deploys a slow
+    // K40 no longer stalls the next device's import.
+    await Promise.allSettled(devices.map(async (d) => {
+      if (_shuttingDown) return;
       try {
-        // eslint-disable-next-line no-await-in-loop
         const r = await biometric.importAttendance(d._id);
         if (r.imported) logger.info(`[biometric] ${d.name}: imported ${r.imported} punch(es)`);
       } catch (err) {
         logger.warn(`[biometric] ${d.name} attendance poll failed: ${err.message}`);
       }
+      // Fingerprint status refresh is expensive AND rarely changes — throttle.
+      if (cycle % FINGERPRINT_REFRESH_EVERY_N_CYCLES !== 0) return;
       try {
-        // eslint-disable-next-line no-await-in-loop
         await biometric.refreshAllFingerprintStatuses(d._id, { onlyNotEnrolled: true });
       } catch (err) {
         logger.warn(`[biometric] ${d.name} fingerprint refresh failed: ${err.message}`);
       }
-    }
+    }));
   } catch (err) {
     logger.error(`[biometric] poll cycle failed: ${err.message}`);
   } finally {

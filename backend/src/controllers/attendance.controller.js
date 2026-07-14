@@ -39,7 +39,14 @@ const {
 // (5-10s over LAN, more over WAN). We debounce so back-to-back web clicks
 // don't stack multiple full imports — if the background poller (or a prior
 // on-demand refresh) touched this device in the last DEBOUNCE_MS, we skip.
-const _REFRESH_DEBOUNCE_MS = 15 * 1000;
+//
+// The debounce MUST be >= the background poller cadence
+// (BIOMETRIC_POLL_INTERVAL_MS, default 60s) — otherwise a shift-start burst
+// of clock-ins (10-20 employees clicking within seconds of each other)
+// each trigger a fresh 5-10s device import, and because attendanceLock
+// serialises them, the API queues 50-100s of held HTTP requests. That's
+// the exact "server overloaded during punches" spike we were seeing.
+const _REFRESH_DEBOUNCE_MS = Number(process.env.ATTENDANCE_REFRESH_DEBOUNCE_MS) || 60 * 1000;
 const _refreshDeviceStateFor = async (user) => {
   if (!user || !user.deviceId) return { synced: false, reason: 'no-device' };
   try {
