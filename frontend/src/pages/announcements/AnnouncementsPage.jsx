@@ -282,9 +282,9 @@ export default function AnnouncementsPage() {
             {dialog.form.audience === 'ROLES' && (
               <Grid item xs={12}>
                 <FormControl fullWidth>
-                  <InputLabel id="roles-lbl">Roles</InputLabel>
+                  <InputLabel id="roles-lbl" htmlFor="roles-select">Roles</InputLabel>
                   <Select
-                    multiple labelId="roles-lbl"
+                    multiple labelId="roles-lbl" id="roles-select" name="roles"
                     input={<OutlinedInput label="Roles" />}
                     value={dialog.form.roles}
                     onChange={(e) => setDialog((s) => ({ ...s, form: { ...s.form, roles: e.target.value } }))}
@@ -304,9 +304,9 @@ export default function AnnouncementsPage() {
             {dialog.form.audience === 'DEPARTMENTS' && (
               <Grid item xs={12}>
                 <FormControl fullWidth>
-                  <InputLabel id="deps-lbl">Departments</InputLabel>
+                  <InputLabel id="deps-lbl" htmlFor="deps-select">Departments</InputLabel>
                   <Select
-                    multiple labelId="deps-lbl"
+                    multiple labelId="deps-lbl" id="deps-select" name="departments"
                     input={<OutlinedInput label="Departments" />}
                     value={dialog.form.departments}
                     onChange={(e) => setDialog((s) => ({ ...s, form: { ...s.form, departments: e.target.value } }))}
