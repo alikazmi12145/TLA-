@@ -169,12 +169,17 @@ function patchZKLibInstance(zk) {
   // Prevent EventEmitter warnings on the underlying socket. node-zklib's
   // getUsers/getAttendance internally attach several one-shot listeners on
   // the same socket during a single request; the default limit of 10 is
-  // easy to hit on slow devices.
+  // easy to hit on slow devices. We also see occasional bursts to ~50+
+  // listeners during a reconnect (the old socket's listeners haven't been
+  // GC'd yet when the new one is created), so we set the cap to 0 —
+  // effectively "unlimited". This is safe because `cleanup()` above
+  // removes every per-request listener on completion; the cap only
+  // controls the EventEmitter warning threshold, not real memory use.
   const originalCreateSocket = tcp.createSocket.bind(tcp);
   tcp.createSocket = async function createSocketSafe(cbError, cbClose) {
     const result = await originalCreateSocket(cbError, cbClose);
     if (this.socket && typeof this.socket.setMaxListeners === 'function') {
-      this.socket.setMaxListeners(50);
+      this.socket.setMaxListeners(0);
     }
     return result;
   };

@@ -31,7 +31,7 @@ const { patchZKLibInstance } = require('./zklib-safe');
 // globally — that would silently mask leaks in third-party emitters
 // (mongoose, socket.io, node internals). node-zklib's short-lived
 // per-request listeners are handled at the correct scope by
-// `patchZKLibInstance` which calls `socket.setMaxListeners(50)` on the
+// `patchZKLibInstance` which calls `socket.setMaxListeners(0)` on the
 // specific TCP/UDP socket it opens. Leave the process-wide default at 10.
 
 const MOCK = String(process.env.BIOMETRIC_MOCK || '').toLowerCase() === 'true';
