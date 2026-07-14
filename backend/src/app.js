@@ -53,6 +53,41 @@ if (process.env.NODE_ENV !== 'test') app.use(morgan('dev'));
 app.use('/uploads', express.static(uploadDir));
 
 // -----------------------------------------------------------------
+// Missing-upload fallback.
+//
+// When a User / Setting document references an upload path that was
+// deleted from disk (manual cleanup, restore-from-backup drift, file
+// system corruption, orphan payslip PDFs, etc.) the browser fires a
+// `GET /uploads/profiles/xyz.png` that produces a red 404 in dev-tools
+// on every page load — even though MUI's <Avatar> already falls back to
+// the initials children on `onError`. The 404 itself is real HTTP; the
+// only way to silence it is to return a valid response.
+//
+// We return a 1×1 transparent PNG with a short cache header so the
+// browser doesn't hammer us on every re-render, and log a warn so ops
+// can spot orphaned references and clean them up when convenient.
+// This ONLY runs when express.static above did NOT find the file
+// (fallthrough default), so it doesn't hide real assets.
+// -----------------------------------------------------------------
+const TRANSPARENT_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+  'base64'
+);
+const _loggedMissingUploads = new Set();
+app.use('/uploads', (req, res) => {
+  // De-dupe log spam — one warn per unique missing path per process boot.
+  if (!_loggedMissingUploads.has(req.path)) {
+    _loggedMissingUploads.add(req.path);
+    // Cap the memoization set so a runaway drift can't leak memory.
+    if (_loggedMissingUploads.size > 500) _loggedMissingUploads.clear();
+    // eslint-disable-next-line no-console
+    console.warn(`[uploads] missing file served as placeholder: ${req.path}`);
+  }
+  res.set('Cache-Control', 'public, max-age=300');
+  res.type('image/png').send(TRANSPARENT_PNG);
+});
+
+// -----------------------------------------------------------------
 // Health check — never rate-limited, never authenticated.
 //
 // Two flavours:

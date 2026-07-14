@@ -42,4 +42,15 @@ export const DEVICE_CONN_STATUS = {
 
 export const DEVICE_CONN_TYPE = ['TCP', 'UDP'];
 
-export const ASSET_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000';
+// Base origin for uploaded assets (profile pictures, payslip PDFs, etc.).
+//
+// In production the SPA is served by nginx on the SAME origin as the API,
+// so an empty base makes `asset('/uploads/x.jpg')` resolve to a relative
+// URL that nginx forwards to the Node backend via the `/uploads/` proxy.
+// A hard-coded `http://localhost:5000` fallback would ship in a
+// production build if `VITE_API_BASE` was forgotten at build-time and
+// break every image / payslip link in the browser.
+//
+// Dev override: set `VITE_API_BASE=http://localhost:5000` in
+// `frontend/.env.local` so Vite's proxy can forward the assets.
+export const ASSET_BASE = import.meta.env.VITE_API_BASE || '';

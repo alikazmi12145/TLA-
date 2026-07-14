@@ -43,13 +43,14 @@ const run = async () => {
 
     // Super Admin
     const adminEmail = (process.env.SEED_ADMIN_EMAIL || 'admin@tlahrms.com').toLowerCase();
+    const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Admin@12345';
     let admin = await User.findOne({ email: adminEmail });
     if (!admin) {
       admin = await User.create({
         employeeId: 'TLA-0001',
         fullName: process.env.SEED_ADMIN_NAME || 'Super Admin',
         email: adminEmail,
-        password: process.env.SEED_ADMIN_PASSWORD || 'Admin@12345',
+        password: adminPassword,
         role: ROLES.SUPER_ADMIN,
         designation: 'Super Administrator',
         joiningDate: new Date(),
@@ -58,17 +59,37 @@ const run = async () => {
         basicSalary: 0,
         status: 'ACTIVE',
       });
-      logger.info(`Super admin created: ${adminEmail} / ${process.env.SEED_ADMIN_PASSWORD || 'Admin@12345'}`);
+      // Never log the plaintext password in production — it would end up in
+      // PM2 log files / journald and, worse, in any log-shipping pipeline.
+      // In dev we still print it once so first-time contributors know the
+      // seeded credentials without opening the seeder source.
+      if (process.env.NODE_ENV === 'production') {
+        logger.info(`Super admin created: ${adminEmail} (password from SEED_ADMIN_PASSWORD env)`);
+      } else {
+        logger.info(`Super admin created: ${adminEmail} / ${adminPassword}`);
+      }
     } else {
       logger.info('Super admin already exists');
     }
 
     // Sample HR + Employee
-    const samples = [
+    //
+    // These fixtures have well-known passwords (Hr@12345 etc.) and exist
+    // purely so a fresh dev checkout has non-admin accounts to log in as.
+    // Creating them in production would ship publicly-known credentials
+    // into a live database — an immediate account takeover. Skip in prod
+    // unless the operator explicitly opts in with SEED_DEMO_USERS=true.
+    const seedDemoUsers =
+      process.env.NODE_ENV !== 'production' ||
+      String(process.env.SEED_DEMO_USERS || '').toLowerCase() === 'true';
+    const samples = seedDemoUsers ? [
       { employeeId: 'TLA-1001', fullName: 'HR Manager', email: 'hr@tlahrms.com', password: 'Hr@12345', role: ROLES.HR_MANAGER },
       { employeeId: 'TLA-1002', fullName: 'Team Leader One', email: 'lead@tlahrms.com', password: 'Lead@12345', role: ROLES.TEAM_LEADER },
       { employeeId: 'TLA-1003', fullName: 'John Employee', email: 'employee@tlahrms.com', password: 'Emp@12345', role: ROLES.EMPLOYEE, basicSalary: 60000, dailyTarget: 10, commissionRate: 5 },
-    ];
+    ] : [];
+    if (!seedDemoUsers) {
+      logger.info('Skipping demo user seed (production).  Set SEED_DEMO_USERS=true to override.');
+    }
     for (const s of samples) {
       const existing = await User.findOne({ email: s.email });
       if (!existing) {
@@ -80,7 +101,7 @@ const run = async () => {
           joiningDate: new Date(),
           status: 'ACTIVE',
         });
-        logger.info(`Created ${s.role}: ${s.email} / ${s.password}`);
+        logger.info(`Created ${s.role}: ${s.email}`);
       }
     }
 
