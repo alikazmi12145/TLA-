@@ -182,7 +182,7 @@ export default function AttendancePage() {
                     }}
                   >
                     <td style={{ padding: '10px 8px' }}>{a.employee?.fullName || ''}</td>
-                    <td style={{ padding: '10px 8px' }}>{dayjs(a.date).format('MMM D, YYYY')}</td>
+                    <td style={{ padding: '10px 8px' }}>{dayjs(s.deviceCheckInAt || s.clockIn || a.date).format('MMM D, YYYY')}</td>
                     <td style={{ padding: '10px 8px' }}>{shiftName}</td>
                     <td style={{ padding: '10px 8px', fontSize: 12, opacity: 0.85 }}>{shiftTime}</td>
                     <td style={{ padding: '10px 8px', fontSize: 12, opacity: 0.85 }}>{sessionLabel}</td>
