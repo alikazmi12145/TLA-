@@ -57,7 +57,7 @@ exports.create = asyncHandler(async (req, res) => {
   const body = { ...req.body };
   const offDays = normalizeOffDays(body.weeklyOffDays);
   if (offDays !== undefined) body.weeklyOffDays = offDays;
-  if (req.file) body.profilePicture = `/uploads/profile/${req.file.filename}`;
+  if (req.file) body.profilePicture = `/uploads/profiles/${req.file.filename}`;
   if (!body.password) body.password = 'Welcome@123';
 
   // 1) Persist employee first. Device sync is best-effort and MUST NOT roll this back.
@@ -93,7 +93,7 @@ exports.update = asyncHandler(async (req, res) => {
   const body = { ...req.body };
   const offDays = normalizeOffDays(body.weeklyOffDays);
   if (offDays !== undefined) body.weeklyOffDays = offDays;
-  if (req.file) body.profilePicture = `/uploads/profile/${req.file.filename}`;
+  if (req.file) body.profilePicture = `/uploads/profiles/${req.file.filename}`;
   delete body.password; // password is changed via dedicated endpoint
   const user = await User.findByIdAndUpdate(req.params.id, body, { new: true, runValidators: true });
   if (!user) throw new ApiError(404, 'Employee not found');

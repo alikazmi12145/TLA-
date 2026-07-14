@@ -15,8 +15,8 @@ const adminHrOrLead = authorize(ROLES.SUPER_ADMIN, ROLES.HR_MANAGER, ROLES.TEAM_
 
 router.get('/', adminHrOrLead, ctrl.list);
 router.get('/:id', ctrl.getOne);
-router.post('/', adminOnly, withSubdir('profile'), upload.single('profilePicture'), ctrl.create);
-router.put('/:id', adminOnly, withSubdir('profile'), upload.single('profilePicture'), ctrl.update);
+router.post('/', adminOnly, withSubdir('profiles'), upload.single('profilePicture'), ctrl.create);
+router.put('/:id', adminOnly, withSubdir('profiles'), upload.single('profilePicture'), ctrl.update);
 router.delete('/:id', adminOnly, ctrl.remove);
 router.patch('/:id/toggle', adminOnly, ctrl.toggleStatus);
 router.post('/:id/reset-password', adminOnly, ctrl.resetEmployeePassword);
