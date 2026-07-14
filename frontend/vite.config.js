@@ -4,7 +4,14 @@ import react from '@vitejs/plugin-react';
 // Backend origin used by all dev proxies below. Override with
 // `BACKEND_URL=http://<host>:<port> npm run dev` when running the API on
 // a different host (e.g. a VM or LAN dev box).
-const BACKEND = process.env.BACKEND_URL || 'http://localhost:5000';
+//
+// Uses 127.0.0.1 (NOT `localhost`) on purpose. Node 17+ preserves the OS
+// DNS resolution order for `localhost`, and on Windows that returns
+// `::1` (IPv6) first. If the backend binds only to IPv4 (or vice-versa),
+// Vite's proxy hits `AggregateError [ECONNREFUSED]` on every request
+// before falling back — sometimes not falling back at all for websocket
+// upgrades. Pinning to the IPv4 loopback dodges the whole mess.
+const BACKEND = process.env.BACKEND_URL || 'http://127.0.0.1:5000';
 
 export default defineConfig({
   plugins: [react()],

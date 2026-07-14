@@ -1,4 +1,21 @@
 require('dotenv').config();
+
+// -------------------------------------------------------------------
+// Fixed process timezone.
+//
+// All attendance / payroll date arithmetic uses `dayjs(...).startOf('day')`
+// which resolves against the Node process's local TZ. On a stock VPS
+// (usually UTC) that means a PKT punch at 01:30 anchors to the PREVIOUS
+// calendar day, which is exactly the "wrong dates in the attendance log"
+// bug. Pinning process.env.TZ before any Date/dayjs code loads forces a
+// deterministic timezone regardless of where the server is hosted.
+//
+// Override via env (e.g. TZ=Asia/Dubai) if the business ever moves.
+// MUST run before the first `new Date()` or `require('./app')` — that's
+// why it sits at the very top of the entrypoint.
+// -------------------------------------------------------------------
+process.env.TZ = process.env.TZ || process.env.APP_TIMEZONE || 'Asia/Karachi';
+
 const http = require('http');
 const mongoose = require('mongoose');
 const app = require('./app');

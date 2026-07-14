@@ -45,7 +45,15 @@ let socket = null;
 export function getSocket() {
   if (socket) return socket;
   socket = io(deriveOrigin(), {
-    transports: ['websocket', 'polling'],
+    // Transport order is socket.io's default (`polling` first, then upgrade
+    // to `websocket`). Forcing `['websocket', 'polling']` bypassed polling
+    // entirely, which — on any reverse proxy NOT configured for the WS
+    // Upgrade handshake (see deploy/nginx.conf.example) — produced a red
+    // "WebSocket connection failed" in the browser console on every
+    // reconnect attempt. With polling first, the client connects cleanly
+    // and only upgrades to WS if the server accepts the Upgrade frame; a
+    // failed upgrade is handled silently by socket.io.
+    transports: ['polling', 'websocket'],
     withCredentials: true,
     // Reconnect indefinitely with exponential backoff. Cap at 30 s so the
     // browser never spams the server after a long outage.

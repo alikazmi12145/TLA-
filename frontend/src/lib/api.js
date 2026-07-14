@@ -7,8 +7,61 @@ const baseURL = import.meta.env.VITE_API_URL || '/api/v1';
 
 const api = axios.create({ baseURL, withCredentials: false });
 
-api.interceptors.request.use((config) => {
-  const token = store.getState().auth.accessToken;
+// ------------------------------------------------------------------
+// JWT expiry preflight.
+//
+// Decode the persisted access token WITHOUT verifying (that's the server's
+// job) purely to check its `exp` claim. When the token is already past
+// its expiry, firing 10+ parallel dashboard/settings/attendance requests
+// on page-load produces 10+ visible red 401s in devtools before the
+// response interceptor's refresh queue catches up — the network entries
+// have already been logged. Preflighting the refresh here means every
+// request goes out with a fresh token and no 401 is ever produced for
+// the common "reload the tab after the token expired" case.
+// ------------------------------------------------------------------
+const decodeJwtExp = (token) => {
+  if (!token || typeof token !== 'string') return 0;
+  const parts = token.split('.');
+  if (parts.length !== 3) return 0;
+  try {
+    const payload = JSON.parse(
+      atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'))
+    );
+    return Number(payload?.exp) || 0;
+  } catch { return 0; }
+};
+
+const isAccessExpired = (token) => {
+  const exp = decodeJwtExp(token);
+  if (!exp) return false; // opaque or unparseable — let the server decide
+  // 5 s skew so a token that expires "right now" is treated as expired.
+  return Date.now() / 1000 >= exp - 5;
+};
+
+api.interceptors.request.use(async (config) => {
+  const state = store.getState().auth;
+  let token = state.accessToken;
+  const authEndpoint = isAuthEndpointUrl(config.url || '');
+  // Only preflight for protected endpoints — never for /auth/login,
+  // /auth/refresh, etc. (those don't need Authorization at all and would
+  // deadlock on the refresh path).
+  if (!authEndpoint && token && isAccessExpired(token) && state.refreshToken) {
+    try {
+      // Reuse the in-flight refresh if the response interceptor already
+      // kicked one off; otherwise start a new one. The response
+      // interceptor's `finally` block (below) is the sole owner of
+      // clearing `refreshPromise`, so DO NOT reset it here — that would
+      // let a concurrent 401 trigger a second refresh mid-flight.
+      if (!refreshPromise) refreshPromise = runRefresh().finally(() => {
+        refreshPromise = null;
+      });
+      token = await refreshPromise;
+    } catch {
+      // Refresh failed — fall through with the stale token so the
+      // response interceptor sees the 401 and dispatches logout via the
+      // existing single-flight path (which also fires the toast).
+    }
+  }
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
