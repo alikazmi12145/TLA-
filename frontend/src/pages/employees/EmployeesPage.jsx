@@ -101,56 +101,72 @@ export default function EmployeesPage() {
           {isLoading ? (
             <TableSkeleton />
           ) : (data?.data?.length ? (
-            <Box sx={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <Box sx={{ width: '100%' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto' }}>
                 <thead>
                   <tr style={{ textAlign: 'left' }}>
-                    {['Employee', 'ID', 'Role', 'Department', 'Designation', 'Status', 'Device', 'Device Status', 'Fingerprint', 'Last Sync', 'Actions'].map((h) => (
-                      <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>
+                    {['Employee', 'Role', 'Department', 'Status', 'Device', 'Last Sync', 'Actions'].map((h) => (
+                      <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {data.data.map((u) => (
                     <tr key={u._id} style={{ borderBottom: '1px dashed rgba(0,0,0,0.08)' }}>
-                      <td style={{ padding: '12px 8px' }}>
+                      <td style={{ padding: '12px 8px', minWidth: 220 }}>
                         <Stack direction="row" spacing={1.5} alignItems="center">
                           <Avatar src={asset(u.profilePicture)}>{initials(u.fullName)}</Avatar>
-                          <Box>
-                            <Box sx={{ fontWeight: 600 }}>{u.fullName}</Box>
-                            <Box sx={{ fontSize: 12, opacity: 0.6 }}>{u.email}</Box>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Box sx={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>{u.fullName}</Box>
+                            <Box sx={{ fontSize: 12, opacity: 0.6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>{u.email}</Box>
+                            {u.employeeId && (
+                              <Box sx={{ fontSize: 11, opacity: 0.55, mt: 0.25 }}>ID: {u.employeeId}</Box>
+                            )}
                           </Box>
                         </Stack>
                       </td>
-                      <td style={{ padding: '12px 8px' }}>{u.employeeId || '-'}</td>
-                      <td style={{ padding: '12px 8px' }}>
+                      <td style={{ padding: '12px 8px', whiteSpace: 'nowrap' }}>
                         <Chip size="small" label={u.role.replace('_', ' ')} />
                       </td>
-                      <td style={{ padding: '12px 8px' }}>{u.department?.name || '-'}</td>
-                      <td style={{ padding: '12px 8px' }}>{u.designation || '-'}</td>
                       <td style={{ padding: '12px 8px' }}>
-                        <Chip size="small" label={u.status} color={u.isActive ? 'success' : 'default'} />
-                      </td>
-                      <td style={{ padding: '12px 8px', fontSize: 12 }}>
-                        {u.deviceId ? (
-                          <>
-                            <div style={{ fontWeight: 600 }}>{u.deviceId?.name || 'Device'}</div>
-                            <div style={{ opacity: 0.6 }}>UID {u.deviceUserId || '—'}</div>
-                          </>
-                        ) : (
-                          <span style={{ opacity: 0.5 }}>—</span>
+                        <Box sx={{ fontWeight: 500 }}>{u.department?.name || '—'}</Box>
+                        {u.designation && (
+                          <Box sx={{ fontSize: 11, opacity: 0.6 }}>{u.designation}</Box>
                         )}
                       </td>
-                      <td style={{ padding: '12px 8px' }}><SyncChip status={u.syncStatus} /></td>
-                      <td style={{ padding: '12px 8px' }}><FingerprintChip status={u.fingerprintStatus} /></td>
-                      <td style={{ padding: '12px 8px', fontSize: 12 }}>
+                      <td style={{ padding: '12px 8px', whiteSpace: 'nowrap' }}>
+                        <Chip size="small" label={u.status} color={u.isActive ? 'success' : 'default'} />
+                      </td>
+                      <td style={{ padding: '12px 8px', fontSize: 12, minWidth: 180 }}>
+                        {u.deviceId ? (
+                          <Stack spacing={0.75}>
+                            <Box>
+                              <Box sx={{ fontWeight: 600, fontSize: 13, lineHeight: 1.2 }}>
+                                {u.deviceId?.name || 'Device'}
+                              </Box>
+                              <Box sx={{ opacity: 0.55, fontSize: 11, mt: 0.25 }}>
+                                UID {u.deviceUserId || '—'}
+                              </Box>
+                            </Box>
+                            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                              <SyncChip status={u.syncStatus} sx={{ height: 20, fontSize: 10, fontWeight: 600 }} />
+                              <FingerprintChip status={u.fingerprintStatus} sx={{ height: 20, fontSize: 10, fontWeight: 600 }} />
+                            </Stack>
+                          </Stack>
+                        ) : (
+                          <Chip size="small" label="Not enrolled" variant="outlined" sx={{ height: 22, fontSize: 11, opacity: 0.7 }} />
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 8px', fontSize: 12, whiteSpace: 'nowrap' }}>
                         {u.lastSync ? dayjs(u.lastSync).format('MMM D, HH:mm') : '—'}
                       </td>
-                      <td style={{ padding: '12px 8px' }}>
-                        <Tooltip title="View"><IconButton size="small" onClick={() => navigate(`/employees/${u._id}`)}><VisibilityIcon fontSize="small" /></IconButton></Tooltip>
-                        <Tooltip title="Edit"><IconButton size="small" onClick={() => navigate(`/employees/${u._id}/edit`)}><EditIcon fontSize="small" /></IconButton></Tooltip>
-                        <Tooltip title="Toggle status"><IconButton size="small" onClick={() => onToggle(u._id)}>{u.isActive ? <ToggleOnIcon color="success" /> : <ToggleOffIcon />}</IconButton></Tooltip>
-                        <Tooltip title="Delete"><IconButton size="small" onClick={() => setConfirm({ id: u._id, name: u.fullName })}><DeleteIcon fontSize="small" color="error" /></IconButton></Tooltip>
+                      <td style={{ padding: '12px 8px', whiteSpace: 'nowrap' }}>
+                        <Stack direction="row" spacing={0.25}>
+                          <Tooltip title="View"><IconButton size="small" onClick={() => navigate(`/employees/${u._id}`)}><VisibilityIcon fontSize="small" /></IconButton></Tooltip>
+                          <Tooltip title="Edit"><IconButton size="small" onClick={() => navigate(`/employees/${u._id}/edit`)}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                          <Tooltip title="Toggle status"><IconButton size="small" onClick={() => onToggle(u._id)}>{u.isActive ? <ToggleOnIcon fontSize="small" color="success" /> : <ToggleOffIcon fontSize="small" />}</IconButton></Tooltip>
+                          <Tooltip title="Delete"><IconButton size="small" onClick={() => setConfirm({ id: u._id, name: u.fullName })}><DeleteIcon fontSize="small" color="error" /></IconButton></Tooltip>
+                        </Stack>
                       </td>
                     </tr>
                   ))}
