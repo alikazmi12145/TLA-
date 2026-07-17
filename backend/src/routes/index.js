@@ -17,5 +17,6 @@ router.use('/settings', require('./setting.routes'));
 router.use('/dashboard', require('./dashboard.routes'));
 router.use('/reports', require('./report.routes'));
 router.use('/devices', require('./device.routes'));
+router.use('/accessories', require('./accessory.routes'));
 
 module.exports = router;

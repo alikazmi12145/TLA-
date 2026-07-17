@@ -16,6 +16,8 @@ import LoginIcon from '@mui/icons-material/Login';
 import LogoutIcon from '@mui/icons-material/Logout';
 import FingerprintIcon from '@mui/icons-material/Fingerprint';
 import CampaignIcon from '@mui/icons-material/Campaign';
+import Inventory2Icon from '@mui/icons-material/Inventory2';
+import AssignmentReturnedIcon from '@mui/icons-material/AssignmentReturned';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import { NavLink } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -47,10 +49,10 @@ const sections = [
     items: [
       // Attendance: SUPER_ADMIN + HR (R+W) + TL (read-only)
       { to: '/attendance', label: 'Attendance', icon: <EventAvailableIcon />, module: 'attendance', allow: Object.values(ROLES) },
-      { to: '/my/attendance', label: 'My Attendance', icon: <BadgeIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
+      { to: '/my/attendance', label: 'My Attendance', icon: <BadgeIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'ADMINISTRATION', 'EMPLOYEE'] },
       // Leaves admin: SUPER_ADMIN + HR
       { to: '/leaves', label: 'Leaves', icon: <EventBusyIcon />, module: 'leaves', allow: Object.values(ROLES) },
-      { to: '/my/leaves', label: 'My Leaves', icon: <EventBusyIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
+      { to: '/my/leaves', label: 'My Leaves', icon: <EventBusyIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'ADMINISTRATION', 'EMPLOYEE'] },
     ],
   },
   {
@@ -58,7 +60,7 @@ const sections = [
     items: [
       // Tasks: SUPER_ADMIN + TL
       { to: '/targets', label: 'Tasks', icon: <EmojiEventsIcon />, module: 'targets', allow: Object.values(ROLES) },
-      { to: '/my/targets', label: 'My Tasks', icon: <EmojiEventsIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
+      { to: '/my/targets', label: 'My Tasks', icon: <EmojiEventsIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'ADMINISTRATION', 'EMPLOYEE'] },
       // Commissions admin: Super Admin only
       { to: '/commissions', label: 'Commissions', icon: <RequestQuoteIcon />, module: 'commissions', allow: Object.values(ROLES) },
     ],
@@ -68,7 +70,7 @@ const sections = [
     items: [
       // Payroll: SUPER_ADMIN + HR (HR sees read-only inside the page)
       { to: '/payroll', label: 'Payroll', icon: <ReceiptLongIcon />, module: 'payroll', allow: Object.values(ROLES) },
-      { to: '/my/payroll', label: 'My Payslips', icon: <ReceiptLongIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
+      { to: '/my/payroll', label: 'My Payslips', icon: <ReceiptLongIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'ADMINISTRATION', 'EMPLOYEE'] },
     ],
   },
   {
@@ -82,9 +84,20 @@ const sections = [
     title: 'System',
     items: [
       { to: '/announcements', label: 'Announcements', icon: <CampaignIcon />, allow: ['SUPER_ADMIN', 'HR_MANAGER'] },
-      { to: '/my/announcements', label: 'My Announcements', icon: <CampaignIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
+      { to: '/my/announcements', label: 'My Announcements', icon: <CampaignIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'ADMINISTRATION', 'EMPLOYEE'] },
       { to: '/devices', label: 'Biometric Devices', icon: <FingerprintIcon />, module: 'devices', allow: Object.values(ROLES) },
       { to: '/settings', label: 'Settings', icon: <SettingsIcon />, allow: ['SUPER_ADMIN'] },
+    ],
+  },
+  {
+    title: 'Administration',
+    items: [
+      // Catalog — Super Admin + Administration
+      { to: '/accessories', label: 'Accessories', icon: <Inventory2Icon />, allow: ['SUPER_ADMIN', 'ADMINISTRATION'] },
+      // Request management — Super Admin + any role with `accessories` manage
+      { to: '/accessories/requests', label: 'Accessory Requests', icon: <AssignmentReturnedIcon />, module: 'accessories', minLevel: 'manage', allow: Object.values(ROLES) },
+      // Employee self-service
+      { to: '/my/accessories', label: 'My Accessories', icon: <Inventory2Icon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
     ],
   },
 ];
@@ -182,7 +195,7 @@ export default function Sidebar({ onNavigate }) {
   const isAllowed = (allow) =>
     allow === 'all' || (Array.isArray(allow) && allow.includes(role));
 
-  const isItemAllowed = (item) => isAllowed(item.allow) && (!item.module || canAccess(item.module, 'read'));
+  const isItemAllowed = (item) => isAllowed(item.allow) && (!item.module || canAccess(item.module, item.minLevel || 'read'));
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

@@ -158,3 +158,22 @@ export const reportService = {
   },
   fetch: (type, params) => api.get(`/reports/${type}`, { params }).then((r) => r.data),
 };
+
+export const accessoryService = {
+  list: (params) => api.get('/accessories', { params }).then((r) => r.data),
+  available: () => api.get('/accessories/available').then((r) => r.data),
+  get: (id) => api.get(`/accessories/${id}`).then((r) => r.data),
+  create: (data) => api.post('/accessories', data).then((r) => r.data),
+  update: (id, data) => api.put(`/accessories/${id}`, data).then((r) => r.data),
+  remove: (id) => api.delete(`/accessories/${id}`).then((r) => r.data),
+
+  requestCreate: (data) => api.post('/accessories/requests', data).then((r) => r.data),
+  myRequests: (params) => api.get('/accessories/requests/me', { params }).then((r) => r.data),
+  requests: (params) => api.get('/accessories/requests', { params }).then((r) => r.data),
+  request: (id) => api.get(`/accessories/requests/${id}`).then((r) => r.data),
+  approve: (id, data) => api.patch(`/accessories/requests/${id}/approve`, data || {}).then((r) => r.data),
+  reject: (id, data) => api.patch(`/accessories/requests/${id}/reject`, data || {}).then((r) => r.data),
+  issue: (id, data) => api.patch(`/accessories/requests/${id}/issue`, data || {}).then((r) => r.data),
+  complete: (id, data) => api.patch(`/accessories/requests/${id}/complete`, data || {}).then((r) => r.data),
+  updateRemarks: (id, data) => api.patch(`/accessories/requests/${id}/remarks`, data).then((r) => r.data),
+};

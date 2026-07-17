@@ -13,6 +13,7 @@ export const PERMISSION_MODULES = [
   { key: 'commissions', label: 'Commissions' },
   { key: 'reports', label: 'Reports' },
   { key: 'devices', label: 'Biometric Devices' },
+  { key: 'accessories', label: 'Accessories' },
 ];
 
 export const DEFAULT_ROLE_PERMISSIONS = {
@@ -27,6 +28,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     commissions: 'none',
     reports: 'none',
     devices: 'read',
+    accessories: 'none',
   },
   [ROLES.TEAM_LEADER]: {
     departments: 'none',
@@ -39,6 +41,20 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     commissions: 'none',
     reports: 'none',
     devices: 'none',
+    accessories: 'none',
+  },
+  [ROLES.ADMINISTRATION]: {
+    departments: 'read',
+    holidays: 'none',
+    attendance: 'none',
+    leaves: 'none',
+    payroll: 'none',
+    shifts: 'none',
+    targets: 'none',
+    commissions: 'none',
+    reports: 'none',
+    devices: 'none',
+    accessories: 'manage',
   },
 };
 

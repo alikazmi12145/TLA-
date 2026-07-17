@@ -46,6 +46,10 @@ import AnnouncementsPage from './pages/announcements/AnnouncementsPage';
 import MyAnnouncementsPage from './pages/announcements/MyAnnouncementsPage';
 import NotFoundPage from './pages/NotFoundPage';
 
+import AccessoriesPage from './pages/accessories/AccessoriesPage';
+import AccessoryRequestsPage from './pages/accessories/AccessoryRequestsPage';
+import MyAccessoryRequestsPage from './pages/accessories/MyAccessoryRequestsPage';
+
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import RoleRoute from './components/auth/RoleRoute';
 import { ROLES } from './lib/constants';
@@ -160,6 +164,17 @@ export default function App() {
           <Route path="/my/targets" element={<MyTargetsPage />} />
           <Route path="/my/payroll" element={<MyPayrollPage />} />
           <Route path="/my/announcements" element={<MyAnnouncementsPage />} />
+          <Route path="/my/accessories" element={<MyAccessoryRequestsPage />} />
+
+          {/* Accessories catalog — SUPER_ADMIN and ADMINISTRATION */}
+          <Route element={<RoleRoute allow={[ROLES.SUPER_ADMIN, ROLES.ADMINISTRATION]} />}>
+            <Route path="/accessories" element={<AccessoriesPage />} />
+          </Route>
+
+          {/* Accessory requests admin — SUPER_ADMIN + anyone granted `accessories` manage */}
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="accessories" minLevel="manage" />}>
+            <Route path="/accessories/requests" element={<AccessoryRequestsPage />} />
+          </Route>
         </Route>
       </Route>
 

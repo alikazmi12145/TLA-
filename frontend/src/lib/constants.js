@@ -2,7 +2,17 @@ export const ROLES = {
   SUPER_ADMIN: 'SUPER_ADMIN',
   HR_MANAGER: 'HR_MANAGER',
   TEAM_LEADER: 'TEAM_LEADER',
+  ADMINISTRATION: 'ADMINISTRATION',
   EMPLOYEE: 'EMPLOYEE',
+};
+
+// Human-friendly labels for roles — used in dropdowns, badges, and chips.
+export const ROLE_LABELS = {
+  SUPER_ADMIN: 'Super Admin',
+  HR_MANAGER: 'HR Manager',
+  TEAM_LEADER: 'Team Leader',
+  ADMINISTRATION: 'Administration',
+  EMPLOYEE: 'Employee',
 };
 
 export const LEAVE_TYPES = ['CASUAL', 'SICK', 'ANNUAL', 'EMERGENCY'];

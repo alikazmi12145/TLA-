@@ -158,32 +158,42 @@ export default function SettingsPage() {
             <Divider flexItem />
             <Typography variant="overline" color="text.secondary">Role Permissions</Typography>
             <Typography variant="body2" color="text.secondary">
-              Admin can choose which modules HR and Team Leaders can open, and whether they can only view or fully manage them.
+              Admin can choose which modules HR, Team Leaders, and Administration can open, and whether they can only view or fully manage them.
             </Typography>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>Module</Typography>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>HR</Typography>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>Team Leader</Typography>
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>Administration</Typography>
               </Grid>
               {PERMISSION_MODULES.map((module) => (
                 <Grid container item spacing={2} key={module.key}>
-                  <Grid item xs={12} md={4}>
+                  <Grid item xs={12} md={3}>
                     <TextField fullWidth value={module.label} InputProps={{ readOnly: true }} />
                   </Grid>
-                  <Grid item xs={12} md={4}>
+                  <Grid item xs={12} md={3}>
                     <TextField select fullWidth label="HR permission" defaultValue="none" {...register(`permissions.HR_MANAGER.${module.key}`)}>
                       {ACCESS_OPTIONS.map((option) => (
                         <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
                       ))}
                     </TextField>
                   </Grid>
-                  <Grid item xs={12} md={4}>
+                  <Grid item xs={12} md={3}>
                     <TextField select fullWidth label="Team Leader permission" defaultValue="none" {...register(`permissions.TEAM_LEADER.${module.key}`)}>
+                      {ACCESS_OPTIONS.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                      ))}
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <TextField select fullWidth label="Administration permission" defaultValue="none" {...register(`permissions.ADMINISTRATION.${module.key}`)}>
                       {ACCESS_OPTIONS.map((option) => (
                         <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
                       ))}

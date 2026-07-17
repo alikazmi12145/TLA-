@@ -24,6 +24,7 @@ const ACCESS_OPTIONS = [
 const DUTY_ROLES = [
   { key: ROLES.HR_MANAGER, label: 'HR' },
   { key: ROLES.TEAM_LEADER, label: 'Team Leader' },
+  { key: ROLES.ADMINISTRATION, label: 'Administration' },
 ];
 
 export default function DepartmentsPage() {
@@ -153,7 +154,7 @@ export default function DepartmentsPage() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Typography variant="body2" color="text.secondary">
-              Only the Super Admin can decide which duties HR and Team Leaders can open, view, or manage.
+              Only the Super Admin can decide which duties HR, Team Leaders, and Administration can open, view, or manage.
             </Typography>
             <TextField
               select
