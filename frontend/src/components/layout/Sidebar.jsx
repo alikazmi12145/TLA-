@@ -37,8 +37,8 @@ const sections = [
   {
     title: 'HR',
     items: [
-      // Employee/department/holiday management is Super Admin only per matrix
-      { to: '/employees', label: 'Employees', icon: <PeopleIcon />, allow: ['SUPER_ADMIN'] },
+      // Employee management is available to roles with employees module access.
+      { to: '/employees', label: 'Employees', icon: <PeopleIcon />, module: 'employees', allow: Object.values(ROLES) },
       { to: '/departments', label: 'Departments', icon: <GroupWorkIcon />, module: 'departments', allow: Object.values(ROLES) },
       { to: '/shifts', label: 'Shifts', icon: <AccessTimeIcon />, module: 'shifts', allow: Object.values(ROLES) },
       { to: '/holidays', label: 'Holidays', icon: <EventIcon />, module: 'holidays', allow: Object.values(ROLES) },

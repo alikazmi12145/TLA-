@@ -101,12 +101,15 @@ export default function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
 
-          {/* SUPER_ADMIN-only modules: Employees CRUD, Departments, Holidays, Commissions, Reports */}
-          <Route element={<RoleRoute allow={[ROLES.SUPER_ADMIN]} />}>
+          {/* Employee management is available to roles with employees module access. */}
+          <Route element={<RoleRoute allow={Object.values(ROLES)} module="employees" minLevel="manage" />}>
             <Route path="/employees" element={<EmployeesPage />} />
             <Route path="/employees/new" element={<EmployeeFormPage />} />
             <Route path="/employees/:id/edit" element={<EmployeeFormPage />} />
             <Route path="/employees/:id" element={<EmployeeViewPage />} />
+          </Route>
+
+          <Route element={<RoleRoute allow={[ROLES.SUPER_ADMIN]} />}>
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/devices/new" element={<DeviceFormPage />} />
             <Route path="/devices/:id/edit" element={<DeviceFormPage />} />
