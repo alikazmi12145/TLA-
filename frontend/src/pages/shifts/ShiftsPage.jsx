@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { Card, CardContent, Stack, TextField, Button, IconButton, Tooltip, Box, Dialog, DialogTitle, DialogContent, DialogActions, MenuItem } from '@mui/material';
+import { Card, CardContent, Grid, Stack, TextField, Button, IconButton, Tooltip, Box, Dialog, DialogTitle, DialogContent, DialogActions, MenuItem, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import PeopleIcon from '@mui/icons-material/People';
 import { useForm } from 'react-hook-form';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 
 import PageHeader from '../../components/common/PageHeader';
+import StatCard from '../../components/common/StatCard';
 import { TableSkeleton, Empty } from '../../components/common/States';
 import ConfirmDialog from '../../components/common/ConfirmDialog';
 import useSettingsPermissions from '../../hooks/useSettingsPermissions';
@@ -22,6 +24,7 @@ export default function ShiftsPage() {
   const [confirm, setConfirm] = useState(null);
 
   const { data, isLoading } = useQuery({ queryKey: ['shifts'], queryFn: shiftService.list });
+  const { data: summaryData, isLoading: isSummaryLoading } = useQuery({ queryKey: ['shift-summary'], queryFn: shiftService.summary });
   const { register, handleSubmit, reset } = useForm();
 
   const startEdit = (s) => { setEditing(s); reset(s); setOpen(true); };
@@ -31,17 +34,44 @@ export default function ShiftsPage() {
     try {
       if (editing) await shiftService.update(editing._id, values);
       else await shiftService.create(values);
-      toast.success('Saved'); qc.invalidateQueries({ queryKey: ['shifts'] }); setOpen(false);
+      toast.success('Saved');
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      qc.invalidateQueries({ queryKey: ['shift-summary'] });
+      setOpen(false);
     } catch {}
   };
   const onDelete = async () => {
-    try { await shiftService.remove(confirm._id); toast.success('Deleted'); qc.invalidateQueries({ queryKey: ['shifts'] }); }
-    catch {} finally { setConfirm(null); }
+    try {
+      await shiftService.remove(confirm._id);
+      toast.success('Deleted');
+      qc.invalidateQueries({ queryKey: ['shifts'] });
+      qc.invalidateQueries({ queryKey: ['shift-summary'] });
+    } catch {} finally { setConfirm(null); }
   };
 
   return (
     <>
       <PageHeader title="Shifts" subtitle={canManage ? 'Create and update shift schedules' : 'View shift schedules'} actions={canManage ? <Button startIcon={<AddIcon />} variant="contained" onClick={startNew}>Add shift</Button> : null} />
+      <Card sx={{ mb: 2 }}><CardContent>
+        <Stack spacing={1} sx={{ mb: 2 }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>Shift employee summary</Typography>
+          <Typography variant="body2" color="text.secondary">Total assigned employees for each shift.</Typography>
+        </Stack>
+        <Grid container spacing={2}>
+          {(isSummaryLoading ? Array.from({ length: 3 }) : summaryData?.data || []).map((shift, index) => (
+            <Grid item xs={12} sm={6} md={4} key={shift?._id ?? index}>
+              <StatCard
+                title={shift?.name || 'Loading...'}
+                value={shift ? shift.employeeCount : '—'}
+                icon={<PeopleIcon />}
+                color="secondary"
+                subtitle={shift ? `${shift.type || 'CUSTOM'} · ${shift.startTime || '—'}-${shift.endTime || '—'}` : ''}
+                loading={isSummaryLoading}
+              />
+            </Grid>
+          ))}
+        </Grid>
+      </CardContent></Card>
       <Card><CardContent>
         {isLoading ? <TableSkeleton /> : (data?.data?.length ? (
           <Box sx={{ overflowX: 'auto' }}>

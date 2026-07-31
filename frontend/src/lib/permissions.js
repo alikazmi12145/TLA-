@@ -3,6 +3,7 @@ import { ROLES } from './constants';
 export const ACCESS_LEVELS = ['none', 'read', 'manage'];
 
 export const PERMISSION_MODULES = [
+  { key: 'employees', label: 'Employees' },
   { key: 'departments', label: 'Departments' },
   { key: 'holidays', label: 'Holidays' },
   { key: 'attendance', label: 'Attendance' },
@@ -18,6 +19,7 @@ export const PERMISSION_MODULES = [
 
 export const DEFAULT_ROLE_PERMISSIONS = {
   [ROLES.HR_MANAGER]: {
+    employees: 'manage',
     departments: 'none',
     holidays: 'none',
     attendance: 'manage',
@@ -31,6 +33,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     accessories: 'none',
   },
   [ROLES.TEAM_LEADER]: {
+    employees: 'manage',
     departments: 'none',
     holidays: 'none',
     attendance: 'read',
@@ -44,6 +47,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     accessories: 'none',
   },
   [ROLES.ADMINISTRATION]: {
+    employees: 'manage',
     departments: 'read',
     holidays: 'none',
     attendance: 'none',

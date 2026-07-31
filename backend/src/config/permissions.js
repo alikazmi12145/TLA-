@@ -3,6 +3,7 @@ const { ROLES } = require('./constants');
 const ACCESS_LEVELS = ['none', 'read', 'manage'];
 
 const PERMISSION_MODULES = {
+  employees: 'Employees',
   departments: 'Departments',
   holidays: 'Holidays',
   attendance: 'Attendance',
@@ -18,6 +19,7 @@ const PERMISSION_MODULES = {
 
 const DEFAULT_ROLE_PERMISSIONS = {
   [ROLES.HR_MANAGER]: {
+    employees: 'manage',
     departments: 'none',
     holidays: 'none',
     attendance: 'manage',
@@ -31,6 +33,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     accessories: 'none',
   },
   [ROLES.TEAM_LEADER]: {
+    employees: 'manage',
     departments: 'none',
     holidays: 'none',
     attendance: 'read',
@@ -44,6 +47,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     accessories: 'none',
   },
   [ROLES.ADMINISTRATION]: {
+    employees: 'manage',
     departments: 'read',
     holidays: 'none',
     attendance: 'none',

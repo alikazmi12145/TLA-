@@ -61,6 +61,7 @@ export const departmentService = {
 
 export const shiftService = {
   list: () => api.get('/shifts').then((r) => r.data),
+  summary: () => api.get('/shifts/summary').then((r) => r.data),
   create: (data) => api.post('/shifts', data).then((r) => r.data),
   update: (id, data) => api.put(`/shifts/${id}`, data).then((r) => r.data),
   remove: (id) => api.delete(`/shifts/${id}`).then((r) => r.data),

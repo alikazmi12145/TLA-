@@ -9,6 +9,7 @@ const readers = authorizeModule('shifts', 'read');
 const writers = authorizeModule('shifts', 'manage');
 
 router.get('/', readers, ctrl.list);
+router.get('/summary', readers, ctrl.summary);
 router.post('/', writers, ctrl.create);
 router.put('/:id', writers, ctrl.update);
 router.delete('/:id', writers, ctrl.remove);

@@ -1,4 +1,4 @@
-import { Box, Card, CardContent, Typography, TextField, Button, InputAdornment, IconButton, Stack, Link as MLink } from '@mui/material';
+import { Box, Card, CardContent, Typography, TextField, Button, InputAdornment, IconButton, Stack, Link as MLink, Alert } from '@mui/material';
 import { Visibility, VisibilityOff, Badge as BadgeIcon, Lock } from '@mui/icons-material';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -10,21 +10,33 @@ import { setCredentials } from '../../features/auth/authSlice';
 import TLALogo from '../../components/common/TLALogo';
 
 export default function LoginPage() {
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm();
+  const { register, handleSubmit, formState: { errors, isSubmitting }, setError, clearErrors } = useForm();
   const [showPwd, setShowPwd] = useState(false);
+  const [loginError, setLoginError] = useState('');
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
   const onSubmit = async (values) => {
+    setLoginError('');
+    clearErrors('userId');
+    clearErrors('password');
     try {
       const res = await authService.login({
         userId: values.userId.trim(),
         password: values.password,
       });
+
       dispatch(setCredentials(res.data));
       toast.success('Welcome back!');
       navigate('/');
-    } catch {/* toast handled by interceptor */}
+    } catch (error) {
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        'Invalid User ID or Password';
+      setLoginError(message);
+      toast.error(message);
+    }
   };
 
   return (
@@ -49,6 +61,7 @@ export default function LoginPage() {
           </Box>
           <form onSubmit={handleSubmit(onSubmit)}>
             <Stack spacing={2}>
+              {loginError && <Alert severity="error">{loginError}</Alert>}
               <TextField
                 label="User ID"
                 placeholder="e.g. TLA-0001"
