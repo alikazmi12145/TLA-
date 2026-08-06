@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSelector } from 'react-redux';
 import { Card, CardContent, Stack, TextField, Button, MenuItem, Chip, Box, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
 import dayjs from 'dayjs';
@@ -12,10 +13,14 @@ import { payrollService } from '../../services';
 import { formatCurrency } from '../../lib/format';
 import api from '../../lib/api';
 import GeneratePayrollDialog from './GeneratePayrollDialog';
+import { selectRole } from '../../features/auth/authSlice';
+import { ROLES } from '../../lib/constants';
 
 export default function PayrollPage() {
   const { canAccess } = useSettingsPermissions();
-  const canWrite = canAccess('payroll', 'manage');
+  const role = useSelector(selectRole);
+  const isSuperAdmin = role === ROLES.SUPER_ADMIN;
+  const canWrite = isSuperAdmin && canAccess('payroll', 'manage');
   const qc = useQueryClient();
   const [filters, setFilters] = useState({ month: '', year: '' }); // '' = "All"
   const [open, setOpen] = useState(false);

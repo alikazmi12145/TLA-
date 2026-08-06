@@ -16,17 +16,35 @@ import {
   Stack,
 } from '@mui/material';
 import dayjs from 'dayjs';
+import { useSelector } from 'react-redux';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'react-toastify';
 
 import { payrollService, employeeService, settingService } from '../../services';
+import { selectRole } from '../../features/auth/authSlice';
+import { ROLES } from '../../lib/constants';
 
 const SECTION_SX = { color: '#5b6ef5', fontWeight: 700 };
 
 export default function GeneratePayrollDialog({ open, onClose, onGenerated, defaultMonth, defaultYear }) {
+  const role = useSelector(selectRole);
+  const isSuperAdmin = role === ROLES.SUPER_ADMIN;
   const [employeeId, setEmployeeId] = useState('');
   const [month, setMonth] = useState(defaultMonth);
   const [year, setYear] = useState(defaultYear);
+  const [overrides, setOverrides] = useState({
+    basicSalary: '',
+    commission: '',
+    ticketIncentive: '',
+    bonus: '',
+    incentives: '',
+    attendanceBonus: '',
+    overtime: '',
+    lateDeduction: '',
+    absentDeduction: '',
+    taxPercentage: '',
+    otherDeductions: '',
+  });
   const [preview, setPreview] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
@@ -44,6 +62,15 @@ export default function GeneratePayrollDialog({ open, onClose, onGenerated, defa
   });
   const currency = settingResp?.data?.currency || 'PKR';
   const fmt = (n) => `${currency} ${Number(n || 0).toFixed(2)}`;
+  const sanitizeInteger = (value) => String(value || '').replace(/[^0-9]/g, '');
+  const sanitizeDecimal = (value) => {
+    const cleaned = String(value || '').replace(/[^0-9.]/g, '');
+    const parts = cleaned.split('.');
+    return parts.length > 1 ? `${parts[0]}.${parts.slice(1).join('')}` : parts[0];
+  };
+  const handleOverrideChange = (field, sanitizer = sanitizeInteger) => (e) => {
+    setOverrides((prev) => ({ ...prev, [field]: sanitizer(e.target.value) }));
+  };
 
   const selectedEmp = useMemo(
     () => (emps?.data || []).find((e) => e._id === employeeId),
@@ -65,29 +92,47 @@ export default function GeneratePayrollDialog({ open, onClose, onGenerated, defa
       setPreview(null);
       return;
     }
+    const payload = {
+      employee: employeeId,
+      month,
+      year,
+      ...Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== '')),
+    };
     let cancelled = false;
-    setPreviewLoading(true);
-    setPreviewError('');
-    payrollService
-      .preview({ employee: employeeId, month, year })
-      .then((resp) => { if (!cancelled) setPreview(resp.data); })
-      .catch((err) => {
-        if (cancelled) return;
-        setPreview(null);
-        setPreviewError(err?.response?.data?.message || err?.message || 'Failed to compute preview');
-      })
-      .finally(() => { if (!cancelled) setPreviewLoading(false); });
-    return () => { cancelled = true; };
-  }, [open, employeeId, month, year]);
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      setPreviewLoading(true);
+      setPreviewError('');
+      payrollService
+        .preview(payload)
+        .then((resp) => { if (!cancelled) setPreview(resp.data); })
+        .catch((err) => {
+          if (cancelled) return;
+          setPreview(null);
+          setPreviewError(err?.response?.data?.message || err?.message || 'Failed to compute preview');
+        })
+        .finally(() => { if (!cancelled) setPreviewLoading(false); });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [open, employeeId, month, year, overrides]);
 
   const submit = async () => {
+    if (!isSuperAdmin) {
+      toast.error('Only Super Admin can generate payroll here');
+      return;
+    }
     if (!employeeId || !month || !year) {
       toast.error('Pick employee, month and year first');
       return;
     }
     setSubmitting(true);
     try {
-      await payrollService.generate({ employee: employeeId, month, year });
+      await payrollService.generate({
+        employee: employeeId,
+        month,
+        year,
+        ...Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== '')),
+      });
       toast.success('Payslip generated and sent to employee');
       onGenerated?.();
       onClose();
@@ -122,7 +167,9 @@ export default function GeneratePayrollDialog({ open, onClose, onGenerated, defa
               size="small"
               label="Employee"
               value={employeeId}
-              onChange={(e) => setEmployeeId(e.target.value)}
+              onChange={(e) => isSuperAdmin && setEmployeeId(e.target.value)}
+              disabled={!isSuperAdmin}
+              helperText={!isSuperAdmin ? 'Only Super Admin can edit payroll fields' : ''}
             >
               <MenuItem value="">— Select employee —</MenuItem>
               {(emps?.data || []).map((e) => (
@@ -139,7 +186,8 @@ export default function GeneratePayrollDialog({ open, onClose, onGenerated, defa
               size="small"
               label="Month"
               value={month}
-              onChange={(e) => setMonth(Number(e.target.value))}
+              onChange={(e) => isSuperAdmin && setMonth(Number(e.target.value))}
+              disabled={!isSuperAdmin}
             >
               {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                 <MenuItem key={m} value={m}>{dayjs().month(m - 1).format('MMMM')}</MenuItem>
@@ -153,7 +201,8 @@ export default function GeneratePayrollDialog({ open, onClose, onGenerated, defa
               size="small"
               label="Year"
               value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
+              onChange={(e) => isSuperAdmin && setYear(Number(e.target.value))}
+              disabled={!isSuperAdmin}
             />
           </Grid>
         </Grid>
@@ -162,6 +211,151 @@ export default function GeneratePayrollDialog({ open, onClose, onGenerated, defa
 
         {!employeeId && (
           <Alert severity="info">Select an employee to preview their calculated payslip.</Alert>
+        )}
+        {!isSuperAdmin && (
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            Payroll generation form is view-only for your role. Only Super Admin can change the selected employee, month, or year.
+          </Alert>
+        )}
+
+        {isSuperAdmin && employeeId && month && year && (
+          <Box sx={{ mb: 2, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 2, p: 2, background: 'rgba(255,255,255,0.03)' }}>
+            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>Super Admin Overrides</Typography>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label="Basic Salary"
+                  placeholder="50000"
+                  fullWidth
+                  size="small"
+                  type="text"
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                  value={overrides.basicSalary}
+                  onChange={handleOverrideChange('basicSalary')}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label="Commission"
+                  placeholder="0"
+                  fullWidth
+                  size="small"
+                  type="text"
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                  value={overrides.commission}
+                  onChange={handleOverrideChange('commission')}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label="Ticket Incentive"
+                  placeholder="0"
+                  fullWidth
+                  size="small"
+                  type="text"
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                  value={overrides.ticketIncentive}
+                  onChange={handleOverrideChange('ticketIncentive')}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label="Bonus"
+                  placeholder="0"
+                  fullWidth
+                  size="small"
+                  type="text"
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                  value={overrides.bonus}
+                  onChange={handleOverrideChange('bonus')}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label="Additional Incentives"
+                  placeholder="0"
+                  fullWidth
+                  size="small"
+                  type="text"
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                  value={overrides.incentives}
+                  onChange={handleOverrideChange('incentives')}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label="Attendance Bonus"
+                  placeholder="0"
+                  fullWidth
+                  size="small"
+                  type="text"
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                  value={overrides.attendanceBonus}
+                  onChange={handleOverrideChange('attendanceBonus')}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label="Overtime"
+                  placeholder="0"
+                  fullWidth
+                  size="small"
+                  type="text"
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                  value={overrides.overtime}
+                  onChange={handleOverrideChange('overtime')}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label="Chargeable Late Deduction"
+                  placeholder="1500"
+                  fullWidth
+                  size="small"
+                  type="text"
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                  value={overrides.lateDeduction}
+                  onChange={handleOverrideChange('lateDeduction')}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label="Absent Deduction"
+                  placeholder="0"
+                  fullWidth
+                  size="small"
+                  type="text"
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                  value={overrides.absentDeduction}
+                  onChange={handleOverrideChange('absentDeduction')}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label="Tax %"
+                  placeholder="0"
+                  fullWidth
+                  size="small"
+                  type="text"
+                  inputProps={{ inputMode: 'decimal', pattern: '[0-9]*([.,][0-9]+)?' }}
+                  value={overrides.taxPercentage}
+                  onChange={handleOverrideChange('taxPercentage', sanitizeDecimal)}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label="Other Deductions"
+                  placeholder="0"
+                  fullWidth
+                  size="small"
+                  type="text"
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                  value={overrides.otherDeductions}
+                  onChange={handleOverrideChange('otherDeductions')}
+                />
+              </Grid>
+            </Grid>
+          </Box>
         )}
 
         {employeeId && previewLoading && (
@@ -248,7 +442,7 @@ export default function GeneratePayrollDialog({ open, onClose, onGenerated, defa
         <Button
           variant="contained"
           onClick={submit}
-          disabled={submitting || !employeeId || previewLoading}
+          disabled={!isSuperAdmin || submitting || !employeeId || previewLoading}
           startIcon={submitting ? <CircularProgress size={14} /> : null}
         >
           Generate &amp; Send
