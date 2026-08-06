@@ -63,6 +63,7 @@ export default function AttendancePage() {
   const role = useSelector((s) => s.auth.user?.role);
   const { canAccess } = useSettingsPermissions();
   const isSuperAdmin = role === ROLES.SUPER_ADMIN;
+  const canViewNotes = isSuperAdmin || role === ROLES.HR_MANAGER;
   const canEditStatus = canAccess('attendance', 'manage');
   const [filters, setFilters] = useState({ date: '', status: '', employee: '' });
   const [noteView, setNoteView] = useState({ open: false, employee: '', date: null, note: '' });
@@ -152,7 +153,7 @@ export default function AttendancePage() {
                   'Employee', 'Date', 'Shift', 'Shift Time', 'Session',
                   'Status', 'Device In', 'Clock In', 'Device Out', 'Clock Out',
                   'Hours', 'Late (m)', 'Method',
-                  ...(isSuperAdmin ? ['Note'] : []),
+                  ...(canViewNotes ? ['Note'] : []),
                 ].map((h) => (
                   <th key={h} style={{ padding: '10px 8px', fontSize: 12, opacity: 0.7, borderBottom: '1px solid rgba(0,0,0,0.08)' }}>{h}</th>
                 ))}
@@ -224,7 +225,7 @@ export default function AttendancePage() {
                     <td style={{ padding: '10px 8px' }}>{minutesToHours(s.workMinutes || 0)}</td>
                     <td style={{ padding: '10px 8px' }}>{s.lateMinutes || 0}</td>
                     <td style={{ padding: '10px 8px' }}>{a.method}</td>
-                    {isSuperAdmin && (
+                    {canViewNotes && (
                       <td style={{ padding: '10px 8px' }}>
                         {a.note ? (
                           <Button

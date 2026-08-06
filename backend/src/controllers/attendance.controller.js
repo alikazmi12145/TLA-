@@ -324,9 +324,9 @@ exports.list = asyncHandler(async (req, res) => {
       .limit(limit),
     Attendance.countDocuments(filter),
   ]);
-  // Notes are visible only to SUPER_ADMIN
-  const isSuperAdmin = req.user && req.user.role === ROLES.SUPER_ADMIN;
-  const sanitized = isSuperAdmin
+  // Notes are visible to SUPER_ADMIN and HR_MANAGER
+  const canViewNotes = req.user && [ROLES.SUPER_ADMIN, ROLES.HR_MANAGER].includes(req.user.role);
+  const sanitized = canViewNotes
     ? items
     : items.map((it) => {
         const obj = it.toObject();

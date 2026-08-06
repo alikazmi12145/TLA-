@@ -21,6 +21,7 @@ export default function LeavesPage() {
   const [filters, setFilters] = useState({ status: '', type: '' });
   const [actioning, setActioning] = useState(null); // { id, status }
   const [remarks, setRemarks] = useState('');
+  const [noteView, setNoteView] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
   const { data, isLoading } = useQuery({
@@ -83,15 +84,50 @@ export default function LeavesPage() {
                     <td style={{ padding: '10px 8px' }}>{dayjs(l.fromDate).format('MMM D, YYYY')}</td>
                     <td style={{ padding: '10px 8px' }}>{dayjs(l.toDate).format('MMM D, YYYY')}</td>
                     <td style={{ padding: '10px 8px' }}>{l.days}</td>
-                    <td style={{ padding: '10px 8px', maxWidth: 280, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={l.reason}>{l.reason}</td>
+                    <td style={{ padding: '10px 8px', maxWidth: 320 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Typography component="span" variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.reason}>{l.reason || '—'}</Typography>
+                        {l.reason && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => setNoteView({ title: 'Leave Reason', content: l.reason, employee: l.employee?.fullName })}
+                            sx={{ whiteSpace: 'nowrap', textTransform: 'none' }}
+                          >
+                            Check Note
+                          </Button>
+                        )}
+                      </Box>
+                    </td>
                     <td style={{ padding: '10px 8px' }}><Chip size="small" label={l.status} color={statusColor[l.status]} /></td>
                     <td style={{ padding: '10px 8px' }}>
                       {canManage && l.status === 'PENDING' ? (
                         <>
                           <Tooltip title="Approve"><IconButton size="small" color="success" onClick={() => setActioning({ id: l._id, status: 'APPROVED' })}><CheckIcon /></IconButton></Tooltip>
                           <Tooltip title="Reject"><IconButton size="small" color="error" onClick={() => setActioning({ id: l._id, status: 'REJECTED' })}><CloseIcon /></IconButton></Tooltip>
+                          {l.remarks ? (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              onClick={() => setNoteView({ title: 'Leave Remarks', content: l.remarks, employee: l.employee?.fullName })}
+                              sx={{ ml: 1, whiteSpace: 'nowrap', textTransform: 'none' }}
+                            >
+                              Check Note
+                            </Button>
+                          ) : null}
                         </>
-                      ) : <Typography variant="caption" color="text.secondary">{l.remarks || '—'}</Typography>}
+                      ) : l.remarks ? (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => setNoteView({ title: 'Leave Remarks', content: l.remarks, employee: l.employee?.fullName })}
+                          sx={{ whiteSpace: 'nowrap', textTransform: 'none' }}
+                        >
+                          Check Note
+                        </Button>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">—</Typography>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -111,6 +147,26 @@ export default function LeavesPage() {
           <Button variant="contained" disabled={submitting} color={actioning?.status === 'APPROVED' ? 'success' : 'error'} onClick={submit}>
             {submitting ? 'Saving…' : `Confirm ${actioning?.status === 'APPROVED' ? 'Approve' : 'Reject'}`}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!noteView} onClose={() => setNoteView(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>{noteView?.title}</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 1 }}>
+            {noteView?.employee && (
+              <Typography variant="caption" color="text.secondary">Employee</Typography>
+            )}
+            {noteView?.employee && (
+              <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>{noteView.employee}</Typography>
+            )}
+            <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+              {noteView?.content || 'No details available.'}
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setNoteView(null)}>Close</Button>
         </DialogActions>
       </Dialog>
     </>
