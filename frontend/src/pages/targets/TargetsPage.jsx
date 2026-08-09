@@ -60,10 +60,20 @@ export default function TargetsPage() {
 
   const onSubmit = async (values) => {
     try {
-      if (editing) await targetService.update(editing._id, values);
-      else await targetService.create(values);
+      if (editing) {
+        const payload = { ...values, employee: Array.isArray(values.employee) ? values.employee[0] : values.employee };
+        await targetService.update(editing._id, payload);
+      } else {
+        // support creating the same task for multiple employees
+        const employees = Array.isArray(values.employee) ? values.employee : [values.employee];
+        await Promise.all(
+          employees.map((empId) => targetService.create({ ...values, employee: empId }))
+        );
+      }
       toast.success('Saved'); qc.invalidateQueries({ queryKey: ['targets'] }); setOpen(false);
-    } catch {}
+    } catch (err) {
+      toast.error(err?.response?.data?.message || 'Failed to save');
+    }
   };
   const onDelete = async () => {
     try { await targetService.remove(confirm._id); toast.success('Deleted'); qc.invalidateQueries({ queryKey: ['targets'] }); }
@@ -171,13 +181,24 @@ export default function TargetsPage() {
                 control={control}
                 defaultValue=""
                 rules={{ required: true }}
-                render={({ field }) => (
-                  <TextField select label="Employee" required fullWidth {...field} value={field.value || ''}>
-                    {(emps?.data || []).map((e) => (
-                      <MenuItem key={e._id} value={e._id}>{e.fullName} ({e.employeeId})</MenuItem>
-                    ))}
-                  </TextField>
-                )}
+                render={({ field }) => {
+                  const value = Array.isArray(field.value) ? field.value : field.value ? [field.value] : [];
+                  return (
+                    <TextField
+                      select
+                      label="Employee"
+                      required
+                      fullWidth
+                      SelectProps={{ multiple: true }}
+                      value={value}
+                      onChange={(e) => field.onChange(e.target.value)}
+                    >
+                      {(emps?.data || []).map((e) => (
+                        <MenuItem key={e._id} value={e._id}>{e.fullName} ({e.employeeId})</MenuItem>
+                      ))}
+                    </TextField>
+                  );
+                }}
               />
               <Controller
                 name="type"
