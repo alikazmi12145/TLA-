@@ -14,6 +14,7 @@ export const PERMISSION_MODULES = [
   { key: 'commissions', label: 'Commissions' },
   { key: 'reports', label: 'Reports' },
   { key: 'devices', label: 'Biometric Devices' },
+  { key: 'requests', label: 'Employee Requests' },
   { key: 'accessories', label: 'Accessories' },
 ];
 
@@ -27,6 +28,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     payroll: 'read',
     shifts: 'none',
     targets: 'none',
+    requests: 'manage',
     commissions: 'none',
     reports: 'none',
     devices: 'read',
@@ -41,6 +43,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     payroll: 'none',
     shifts: 'manage',
     targets: 'manage',
+    requests: 'manage',
     commissions: 'none',
     reports: 'none',
     devices: 'none',
@@ -55,6 +58,7 @@ export const DEFAULT_ROLE_PERMISSIONS = {
     payroll: 'none',
     shifts: 'none',
     targets: 'none',
+    requests: 'none',
     commissions: 'none',
     reports: 'none',
     devices: 'none',
