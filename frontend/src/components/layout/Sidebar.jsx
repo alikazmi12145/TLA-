@@ -42,6 +42,7 @@ const sections = [
       { to: '/departments', label: 'Departments', icon: <GroupWorkIcon />, module: 'departments', allow: Object.values(ROLES) },
       { to: '/shifts', label: 'Shifts', icon: <AccessTimeIcon />, module: 'shifts', allow: Object.values(ROLES) },
       { to: '/holidays', label: 'Holidays', icon: <EventIcon />, module: 'holidays', allow: Object.values(ROLES) },
+      { to: '/requests', label: 'Requests', icon: <RequestQuoteIcon />, module: 'requests', allow: ['SUPER_ADMIN', 'HR_MANAGER', 'TEAM_LEADER'] },
     ],
   },
   {
@@ -98,6 +99,7 @@ const sections = [
       { to: '/accessories/requests', label: 'Accessory Requests', icon: <AssignmentReturnedIcon />, module: 'accessories', minLevel: 'manage', allow: Object.values(ROLES) },
       // Employee self-service
       { to: '/my/accessories', label: 'My Accessories', icon: <Inventory2Icon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'EMPLOYEE'] },
+      { to: '/my/requests', label: 'My Requests', icon: <AssignmentReturnedIcon />, allow: ['HR_MANAGER', 'TEAM_LEADER', 'ADMINISTRATION', 'EMPLOYEE'] },
     ],
   },
 ];

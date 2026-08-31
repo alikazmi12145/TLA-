@@ -178,3 +178,12 @@ export const accessoryService = {
   complete: (id, data) => api.patch(`/accessories/requests/${id}/complete`, data || {}).then((r) => r.data),
   updateRemarks: (id, data) => api.patch(`/accessories/requests/${id}/remarks`, data).then((r) => r.data),
 };
+
+export const requestService = {
+  create: (data) => api.post('/requests', data).then((r) => r.data),
+  myRequests: (params) => api.get('/requests/me', { params }).then((r) => r.data),
+  list: (params) => api.get('/requests', { params }).then((r) => r.data),
+  get: (id) => api.get(`/requests/${id}`).then((r) => r.data),
+  approve: (id, data) => api.patch(`/requests/${id}/approve`, data || {}).then((r) => r.data),
+  reject: (id, data) => api.patch(`/requests/${id}/reject`, data || {}).then((r) => r.data),
+};

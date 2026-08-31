@@ -49,6 +49,8 @@ import NotFoundPage from './pages/NotFoundPage';
 import AccessoriesPage from './pages/accessories/AccessoriesPage';
 import AccessoryRequestsPage from './pages/accessories/AccessoryRequestsPage';
 import MyAccessoryRequestsPage from './pages/accessories/MyAccessoryRequestsPage';
+import MyRequestsPage from './pages/requests/MyRequestsPage';
+import RequestsPage from './pages/requests/RequestsPage';
 
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import RoleRoute from './components/auth/RoleRoute';
@@ -157,6 +159,10 @@ export default function App() {
             <Route path="/shifts" element={<ShiftsPage />} />
           </Route>
 
+          <Route element={<RoleRoute allow={[ROLES.SUPER_ADMIN, ROLES.HR_MANAGER, ROLES.TEAM_LEADER]} />}>
+            <Route path="/requests" element={<RequestsPage />} />
+          </Route>
+
           <Route element={<RoleRoute allow={Object.values(ROLES)} module="targets" />}>
             <Route path="/targets" element={<TargetsPage />} />
           </Route>
@@ -168,6 +174,7 @@ export default function App() {
           <Route path="/my/payroll" element={<MyPayrollPage />} />
           <Route path="/my/announcements" element={<MyAnnouncementsPage />} />
           <Route path="/my/accessories" element={<MyAccessoryRequestsPage />} />
+          <Route path="/my/requests" element={<MyRequestsPage />} />
 
           {/* Accessories catalog — SUPER_ADMIN and ADMINISTRATION */}
           <Route element={<RoleRoute allow={[ROLES.SUPER_ADMIN, ROLES.ADMINISTRATION]} />}>
