@@ -14,7 +14,7 @@ export const PERMISSION_MODULES = [
   { key: 'commissions', label: 'Commissions' },
   { key: 'reports', label: 'Reports' },
   { key: 'devices', label: 'Biometric Devices' },
-  { key: 'requests', label: 'Employee Requests' },
+  { key: 'requests', label: 'Request' },
   { key: 'accessories', label: 'Accessories' },
 ];
 

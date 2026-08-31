@@ -12,7 +12,7 @@ const PERMISSION_MODULES = {
   shifts: 'Shifts',
   targets: 'Tasks',
   commissions: 'Commissions',
-  requests: 'Employee Requests',
+  requests: 'Request',
   reports: 'Reports',
   devices: 'Biometric Devices',
   accessories: 'Accessories',
