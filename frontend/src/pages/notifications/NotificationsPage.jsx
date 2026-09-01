@@ -21,6 +21,8 @@ const ROUTE_FOR = {
   COMMISSION_ADDED: (_n, role) => (role === 'EMPLOYEE' ? '/my/payroll' : '/commissions'),
   SALARY: (_n, role) => (role === 'EMPLOYEE' ? '/my/payroll' : '/payroll'),
   PAYROLL: (_n, role) => (role === 'EMPLOYEE' ? '/my/payroll' : '/payroll'),
+  REQUEST: (_n, role) => (role === 'EMPLOYEE' ? '/my/requests' : '/requests'),
+  REQUEST_REPLY: (_n, role) => (role === 'EMPLOYEE' ? '/my/requests' : '/requests'),
   ATTENDANCE: () => '/my/attendance',
   ATTENDANCE_CLOCK_IN: (_n, role) => (role === 'EMPLOYEE' ? '/my/attendance' : '/attendance'),
   ATTENDANCE_CLOCK_OUT: (_n, role) => (role === 'EMPLOYEE' ? '/my/attendance' : '/attendance'),

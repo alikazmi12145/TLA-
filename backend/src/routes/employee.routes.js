@@ -9,12 +9,13 @@ const router = express.Router();
 router.use(protect);
 
 // Employee writes require manage-level access to the employees module.
-// Reads remain open to admins/HR/TL because other admin pages need employee data.
+// Reads are allowed for any authenticated user so request forms can list employees
+// for direct recipient selection without hitting a 403.
 const adminOnly = authorize(ROLES.SUPER_ADMIN);
 const adminHrOrLead = authorize(ROLES.SUPER_ADMIN, ROLES.HR_MANAGER, ROLES.TEAM_LEADER);
 const employeeManager = authorizeModule('employees', 'manage');
 
-router.get('/', adminHrOrLead, ctrl.list);
+router.get('/', ctrl.list);
 router.get('/:id', ctrl.getOne);
 router.post('/', employeeManager, withSubdir('profiles'), upload.single('profilePicture'), ctrl.create);
 router.put('/:id', employeeManager, withSubdir('profiles'), upload.single('profilePicture'), ctrl.update);

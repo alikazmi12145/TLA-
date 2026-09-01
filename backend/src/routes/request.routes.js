@@ -10,6 +10,8 @@ router.use(protect);
 // Employees can create requests for review.
 router.post('/', ctrl.create);
 router.get('/me', ctrl.myRequests);
+router.delete('/:id', ctrl.remove);
+router.patch('/:id/reply', ctrl.reply);
 
 // Managers with relevant role OR module permission can list all requests.
 const { authorize } = require('../middleware/auth');

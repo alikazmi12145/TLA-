@@ -184,6 +184,8 @@ export const requestService = {
   myRequests: (params) => api.get('/requests/me', { params }).then((r) => r.data),
   list: (params) => api.get('/requests', { params }).then((r) => r.data),
   get: (id) => api.get(`/requests/${id}`).then((r) => r.data),
+  remove: (id) => api.delete(`/requests/${id}`).then((r) => r.data),
   approve: (id, data) => api.patch(`/requests/${id}/approve`, data || {}).then((r) => r.data),
   reject: (id, data) => api.patch(`/requests/${id}/reject`, data || {}).then((r) => r.data),
+  reply: (id, data) => api.patch(`/requests/${id}/reply`, data || {}).then((r) => r.data),
 };
