@@ -340,12 +340,15 @@ exports.adjust = asyncHandler(async (req, res) => {
   const { employee, date, status, clockIn, clockOut, note } = req.body;
   if (!employee || !date) throw new ApiError(400, 'employee and date required');
   const day = startOfDay(date);
+  const effectiveStatus = status || ATTENDANCE_STATUS.PRESENT;
   // Only $set fields the caller actually provided — passing `undefined` in a
   // $set is harmless for Mongoose but muddies intent, and (more importantly)
   // lets us keep the write purely status-only when no clock times are given.
   const setDoc = {
     method: ATTENDANCE_METHOD.MANUAL,
-    status: status || ATTENDANCE_STATUS.PRESENT,
+    status: effectiveStatus,
+    isLate: effectiveStatus === ATTENDANCE_STATUS.LATE,
+    lateMinutes: 0,
     adjustedBy: req.user._id,
   };
   if (clockIn) setDoc.clockIn = new Date(clockIn);

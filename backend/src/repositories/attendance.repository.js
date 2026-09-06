@@ -123,8 +123,12 @@ const recomputeAggregates = (row) => {
   row.deviceCheckInAt = last.deviceCheckInAt || null;
   row.deviceCheckOutAt = last.deviceCheckOutAt || null;
   row.workMinutes = s.reduce((acc, x) => acc + (Number(x.workMinutes) || 0), 0);
-  row.isLate = s.some((x) => x.isLate);
-  row.lateMinutes = s.reduce((acc, x) => acc + (Number(x.lateMinutes) || 0), 0);
+  row.isLate = row.method === ATTENDANCE_METHOD.MANUAL
+    ? row.status === ATTENDANCE_STATUS.LATE
+    : s.some((x) => x.isLate);
+  row.lateMinutes = row.method === ATTENDANCE_METHOD.MANUAL
+    ? 0
+    : s.reduce((acc, x) => acc + (Number(x.lateMinutes) || 0), 0);
   row.earlyOutMinutes = s.reduce((acc, x) => acc + (Number(x.earlyOutMinutes) || 0), 0);
   row.isEarlyOut = row.earlyOutMinutes > 0;
   row.overtimeMinutes = s.reduce((acc, x) => acc + (Number(x.overtimeMinutes) || 0), 0);

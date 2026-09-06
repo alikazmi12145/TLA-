@@ -13,6 +13,11 @@ const resolveUpload = (urlPath) => {
 
 const fmt = (currency, n) => `${currency} ${Number(n || 0).toFixed(2)}`;
 
+const resolveOtherDeductions = (payroll, meta) => {
+  if (meta.otherDeductionsInput !== undefined) return Number(meta.otherDeductionsInput) || 0;
+  return Math.max(0, (Number(payroll.otherDeductions) || 0) - (Number(meta.tax) || 0));
+};
+
 function drawHeaderBand(doc, { brand, company, monthLabel, logoPath }) {
   const pageWidth = doc.page.width;
   doc.save();
@@ -295,7 +300,7 @@ const generatePayslipPDF = async (payroll, employee, setting) => {
       ['Late Deduction', -(payroll.lateDeduction || 0)],
       ['Absent Deduction', -(payroll.absentDeduction || 0)],
       ['Tax', -(meta.tax || 0)],
-      ['Other Deductions', -(meta.otherDeductionsInput || 0)],
+      ['Other Deductions', -resolveOtherDeductions(payroll, meta)],
     ];
     drawTwoColumnBreakdown(doc, currency, earnings, deductions, brand);
 

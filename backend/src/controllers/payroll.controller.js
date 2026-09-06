@@ -1,6 +1,5 @@
 const asyncHandler = require('express-async-handler');
 const path = require('path');
-const fs = require('fs');
 const dayjs = require('dayjs');
 const ApiError = require('../utils/ApiError');
 const { success } = require('../utils/response');
@@ -21,6 +20,8 @@ const num = (v, fallback) => {
   const n = Number(v);
   return Number.isNaN(n) ? fallback : n;
 };
+
+const effectiveAttendanceStatus = (record) => record.status;
 
 const computePayroll = async (employee, month, year, overrides = {}) => {
   const start = dayjs(`${year}-${month}-01`).startOf('month').toDate();
@@ -51,11 +52,14 @@ const computePayroll = async (employee, month, year, overrides = {}) => {
 
   // --- attendance defaults (overridable). Absences that fall on the employee's
   // own off day are NOT counted as absent (no salary cut for missing a day off). ---
-  const dbPresent = records.filter((r) => r.status === 'PRESENT' || r.status === 'LATE').length;
-  const dbAbsent = records.filter((r) => r.status === 'ABSENT' && !offDaySet.has(dayjs(r.date).day())).length;
-  const dbLeave = records.filter((r) => r.status === 'LEAVE').length;
-  const dbLate = records.filter((r) => r.isLate || r.status === 'LATE').length;
-  const dbHalf = records.filter((r) => r.status === 'HALF_DAY').length;
+  const effectiveRecords = records.map((record) => ({ record, status: effectiveAttendanceStatus(record) }));
+  const dbPresent = effectiveRecords.filter(({ status }) => status === 'PRESENT' || status === 'LATE').length;
+  const dbAbsent = effectiveRecords.filter(({ record, status }) =>
+    status === 'ABSENT' && !offDaySet.has(dayjs(record.date).day())
+  ).length;
+  const dbLeave = effectiveRecords.filter(({ status }) => status === 'LEAVE').length;
+  const dbLate = effectiveRecords.filter(({ status }) => status === 'LATE').length;
+  const dbHalf = effectiveRecords.filter(({ status }) => status === 'HALF_DAY').length;
   const dbWorkMin = records.reduce((s, r) => s + (r.workMinutes || 0), 0);
 
   const presentDays = num(overrides.presentDays, dbPresent);
@@ -90,7 +94,7 @@ const computePayroll = async (employee, month, year, overrides = {}) => {
   const perLateCharge = Math.max(0, num(overrides.perLateCharge, Number(setting.lateDeductionPerDay) || 0));
   const chargeableLates = Math.max(0, lateDays - grace);
   const dbLateDeduction = chargeableLates * perLateCharge;
-  const lateDeduction = num(overrides.lateDeduction, dbLateDeduction);
+  const lateDeduction = chargeableLates > 0 ? num(overrides.lateDeduction, dbLateDeduction) : 0;
 
   // --- ticket incentive ---
   // Per-employee daily target wins over the global default so different
@@ -186,6 +190,8 @@ const computePayroll = async (employee, month, year, overrides = {}) => {
     },
   };
 };
+
+exports.computePayroll = computePayroll;
 
 exports.preview = asyncHandler(async (req, res) => {
   const { employee: employeeId, month, year, ...overrides } = req.body;
@@ -303,20 +309,15 @@ exports.payslip = asyncHandler(async (req, res) => {
     !['SUPER_ADMIN', 'HR_MANAGER'].includes(req.user.role)
   )
     throw new ApiError(403, 'Forbidden');
-  let filePath = p.payslipPath ? path.join(process.cwd(), p.payslipPath.replace(/^\/+/, '')) : null;
-  if (!filePath || !fs.existsSync(filePath)) {
-    const setting = await Setting.findOne();
-    const computed = await computePayroll(p.employee, p.month, p.year);
-    const { _meta } = computed;
-    const newPath = await generatePayslipPDF(
-      { ...p.toObject(), _meta, generatedAt: p.createdAt },
-      p.employee.toObject(),
-      setting
-    );
-    p.payslipPath = newPath;
-    await p.save();
-    filePath = path.join(process.cwd(), newPath.replace(/^\/+/, ''));
-  }
+  const setting = await Setting.findOne();
+  const newPath = await generatePayslipPDF(
+    { ...p.toObject(), generatedAt: p.createdAt },
+    p.employee.toObject(),
+    setting
+  );
+  p.payslipPath = newPath;
+  await p.save();
+  const filePath = path.join(process.cwd(), newPath.replace(/^\/+/, ''));
   return res.download(filePath);
 });
 
@@ -330,10 +331,8 @@ exports.markPaid = asyncHandler(async (req, res) => {
   // Regenerate the PDF so the PAID stamp + paid-on date are reflected.
   try {
     const setting = await Setting.findOne();
-    const computed = await computePayroll(p.employee, p.month, p.year);
-    const { _meta } = computed;
     const newPath = await generatePayslipPDF(
-      { ...p.toObject(), _meta, status: 'PAID', paidAt: p.paidAt, generatedAt: p.createdAt },
+      { ...p.toObject(), status: 'PAID', paidAt: p.paidAt, generatedAt: p.createdAt },
       p.employee.toObject(),
       setting
     );
